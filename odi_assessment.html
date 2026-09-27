@@ -1,0 +1,2204 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  ODI PHYSIOTHERAPY ASSESSMENT
+  Digital Oswestry Disability Index Assessment — Single-file web app
+  ============================================================================
+
+  HOW TO USE
+  1. Simpan file ini sebagai odi_assessment.html (boleh diganti namanya).
+  2. Buka file tersebut langsung di Chrome/Edge dengan cara double-click,
+     atau lewat menu File > Open File di browser. Tidak perlu server/backend.
+  3. Untuk akses publik / dibagikan sebagai link, upload file ini ke:
+     - GitHub Pages
+     - Netlify / Vercel
+     - static hosting lain
+     File ini murni HTML/CSS/JS statis, tidak butuh proses build/npm/terminal.
+  4. Seluruh data pasien & hasil asesmen disimpan LOKAL di browser (IndexedDB).
+     Data tidak dikirim ke server manapun. Data akan tetap ada meski browser
+     ditutup, selama tidak menghapus data situs / membersihkan cache browser,
+     dan selama dibuka dari domain/file yang sama.
+
+  LIBRARY EKSTERNAL YANG DIPAKAI (lewat CDN, hanya untuk fitur opsional):
+  - SheetJS (xlsx.full.min.js)   -> untuk fitur "Export Excel"
+  Semua fitur inti (isi form, hitung skor ODI, simpan data, cetak PDF lewat
+  print CSS) berjalan murni dengan HTML/CSS/JavaScript tanpa dependency.
+
+  DISCLAIMER
+  Aplikasi ini adalah PROTOTIPE untuk keperluan edukasi/klinik sederhana,
+  BUKAN sistem rekam medis elektronik resmi. Untuk penggunaan klinis nyata,
+  perlu ditambahkan autentikasi, enkripsi, access control, audit log,
+  penyimpanan backend yang aman, dan kepatuhan terhadap regulasi data
+  kesehatan yang berlaku.
+  ============================================================================
+-->
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ODI Physiotherapy Assessment</title>
+<style>
+  :root{
+    --teal-900:#0B3A3D;
+    --teal-800:#0F5257;
+    --teal-700:#146B6E;
+    --teal-600:#1B8286;
+    --teal-100:#E3F1EF;
+    --teal-50:#F2F8F7;
+    --bg:#F5F7F6;
+    --card:#FFFFFF;
+    --border:#E1E7E5;
+    --ink:#1B2A28;
+    --ink-soft:#54655F;
+    --ink-faint:#8C9C97;
+    --green:#1E8A5C;
+    --amber:#B9860A;
+    --orange:#C1621B;
+    --red:#C13B3B;
+    --maroon:#7A1F1F;
+    --radius:10px;
+    --radius-lg:14px;
+    --shadow:0 1px 2px rgba(15,82,87,0.06), 0 1px 8px rgba(15,82,87,0.05);
+    --serif:Georgia,'Iowan Old Style','Times New Roman',serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:var(--sans);
+    background:var(--bg);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+  }
+  h1,h2,h3,h4{margin:0;font-weight:600;}
+  p{margin:0;}
+  button{font-family:inherit;cursor:pointer;}
+  input,select,textarea{font-family:inherit;font-size:14px;}
+  a{color:inherit;}
+  ::selection{background:var(--teal-100);}
+
+  /* ---------- Skip link / focus ---------- */
+  :focus-visible{outline:2px solid var(--teal-700);outline-offset:2px;}
+
+  /* ---------- App shell ---------- */
+  #app{min-height:100vh;display:flex;flex-direction:column;}
+
+  header.topbar{
+    background:linear-gradient(180deg,var(--teal-900),var(--teal-800));
+    color:#fff;
+    padding:18px 24px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand-mark{
+    width:42px;height:42px;border-radius:10px;
+    background:rgba(255,255,255,0.12);
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--serif);font-size:20px;font-weight:700;
+    border:1px solid rgba(255,255,255,0.25);
+    flex-shrink:0;
+  }
+  .brand-text h1{font-size:19px;letter-spacing:0.2px;}
+  .brand-text p{font-size:12.5px;color:#CFE6E3;margin-top:2px;}
+
+  nav.tabs{
+    display:flex;gap:4px;background:var(--card);
+    border-bottom:1px solid var(--border);
+    padding:0 20px;overflow-x:auto;
+  }
+  nav.tabs button{
+    background:none;border:none;padding:14px 16px;
+    font-size:13.5px;font-weight:600;color:var(--ink-soft);
+    border-bottom:2.5px solid transparent;
+    white-space:nowrap;
+  }
+  nav.tabs button.active{color:var(--teal-800);border-bottom-color:var(--teal-700);}
+  nav.tabs button:hover{color:var(--teal-800);}
+
+  main{flex:1;padding:24px;max-width:1180px;width:100%;margin:0 auto;}
+  .view{display:none;}
+  .view.active{display:block;animation:fadeIn .25s ease;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+
+  footer.appfooter{
+    text-align:center;padding:18px;font-size:11.5px;color:var(--ink-faint);
+    border-top:1px solid var(--border);
+  }
+  footer.appfooter button{
+    background:none;border:none;color:var(--teal-700);text-decoration:underline;
+    font-size:11.5px;padding:0;margin-left:4px;
+  }
+
+  /* ---------- Section heading ---------- */
+  .page-head{margin-bottom:20px;}
+  .page-head h2{font-size:22px;font-family:var(--serif);color:var(--teal-900);}
+  .page-head p{color:var(--ink-soft);font-size:13.5px;margin-top:4px;}
+
+  /* ---------- Cards ---------- */
+  .card{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:var(--radius-lg);box-shadow:var(--shadow);
+  }
+  .card-pad{padding:20px;}
+
+  /* ---------- Stat grid ---------- */
+  .stat-grid{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;
+  }
+  .stat-card{
+    background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);
+    padding:16px 18px;box-shadow:var(--shadow);
+  }
+  .stat-card .stat-label{font-size:12px;color:var(--ink-soft);font-weight:600;}
+  .stat-card .stat-value{font-family:var(--serif);font-size:30px;color:var(--teal-900);margin-top:6px;}
+  .stat-card .stat-sub{font-size:11.5px;color:var(--ink-faint);margin-top:3px;}
+
+  .dist-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:12.5px;}
+  .dist-row .dist-label{width:150px;color:var(--ink-soft);flex-shrink:0;}
+  .dist-bar-track{flex:1;height:9px;background:var(--teal-50);border-radius:6px;overflow:hidden;}
+  .dist-bar-fill{height:100%;border-radius:6px;}
+  .dist-count{width:26px;text-align:right;color:var(--ink-soft);font-variant-numeric:tabular-nums;}
+
+  /* ---------- Table ---------- */
+  .table-wrap{overflow-x:auto;border-radius:var(--radius);border:1px solid var(--border);}
+  table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;}
+  thead th{
+    text-align:left;background:var(--teal-50);color:var(--teal-900);
+    font-size:11.5px;font-weight:700;padding:10px 12px;
+    border-bottom:1px solid var(--border);white-space:nowrap;
+  }
+  tbody td{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--ink);vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--teal-50);}
+  .cell-link{color:var(--teal-700);font-weight:600;background:none;border:none;padding:0;text-decoration:underline;font-size:13px;}
+  .empty-state{padding:48px 20px;text-align:center;color:var(--ink-faint);}
+  .empty-state .empty-icon{font-size:34px;margin-bottom:10px;}
+  .empty-state h4{color:var(--ink-soft);font-size:15px;margin-bottom:6px;}
+  .empty-state p{font-size:13px;max-width:360px;margin:0 auto;}
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    display:inline-flex;align-items:center;gap:7px;
+    padding:9px 16px;border-radius:8px;border:1px solid transparent;
+    font-size:13.5px;font-weight:600;transition:background .15s,border-color .15s;
+  }
+  .btn-primary{background:var(--teal-800);color:#fff;}
+  .btn-primary:hover{background:var(--teal-700);}
+  .btn-secondary{background:#fff;color:var(--teal-800);border-color:var(--teal-700);}
+  .btn-secondary:hover{background:var(--teal-50);}
+  .btn-ghost{background:none;color:var(--ink-soft);border-color:var(--border);}
+  .btn-ghost:hover{background:var(--teal-50);color:var(--ink);}
+  .btn-danger{background:#fff;color:var(--red);border-color:var(--red);}
+  .btn-danger:hover{background:#FDF1F1;}
+  .btn-danger-solid{background:var(--red);color:#fff;}
+  .btn-danger-solid:hover{background:#A83232;}
+  .btn-sm{padding:6px 11px;font-size:12.5px;}
+  .btn:disabled{opacity:0.45;cursor:not-allowed;}
+  .btn-row{display:flex;gap:10px;flex-wrap:wrap;}
+
+  /* ---------- Forms ---------- */
+  .form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 16px;}
+  .form-grid.cols-3{grid-template-columns:repeat(3,1fr);}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field.full{grid-column:1/-1;}
+  .field label{font-size:12.5px;font-weight:600;color:var(--ink-soft);}
+  .field label .req{color:var(--red);}
+  .field input,.field select,.field textarea{
+    padding:9px 11px;border:1px solid var(--border);border-radius:8px;
+    background:#fff;color:var(--ink);width:100%;
+  }
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--teal-700);}
+  .field textarea{resize:vertical;min-height:64px;}
+  .field .hint{font-size:11px;color:var(--ink-faint);}
+  .field .err{font-size:11.5px;color:var(--red);display:none;}
+  .field.invalid input,.field.invalid select,.field.invalid textarea{border-color:var(--red);}
+  .field.invalid .err{display:block;}
+  .field-sub-title{grid-column:1/-1;font-size:13px;font-weight:700;color:var(--teal-800);
+    margin-top:6px;padding-top:12px;border-top:1px dashed var(--border);}
+  .field-sub-title:first-child{border-top:none;padding-top:0;margin-top:0;}
+
+  /* ---------- Search bar ---------- */
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;justify-content:space-between;}
+  .toolbar .toolbar-left{display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:1;}
+  .search-box{position:relative;min-width:220px;flex:1;max-width:340px;}
+  .search-box input{width:100%;padding:9px 12px 9px 32px;border:1px solid var(--border);border-radius:8px;}
+  .search-box::before{content:"⌕";position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ink-faint);font-size:15px;}
+  select.filter-select{padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;}
+
+  /* ---------- Wizard (ODI questionnaire) ---------- */
+  .progress-wrap{margin-bottom:18px;}
+  .progress-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .progress-top .p-label{font-size:12.5px;font-weight:700;color:var(--teal-800);}
+  .progress-top .p-count{font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;}
+  .progress-track{height:8px;background:var(--teal-50);border-radius:6px;overflow:hidden;}
+  .progress-fill{height:100%;background:linear-gradient(90deg,var(--teal-700),var(--teal-600));border-radius:6px;transition:width .3s ease;}
+
+  .step-dots{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;}
+  .step-dot{
+    width:26px;height:26px;border-radius:50%;border:1.5px solid var(--border);
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
+    color:var(--ink-faint);background:#fff;flex-shrink:0;
+  }
+  .step-dot.done{background:var(--teal-700);border-color:var(--teal-700);color:#fff;}
+  .step-dot.current{border-color:var(--teal-700);color:var(--teal-800);box-shadow:0 0 0 3px var(--teal-100);}
+  .step-dot.unanswered-flag{border-color:var(--red);}
+
+  .odi-section-card{padding:26px 24px;}
+  .odi-section-num{font-family:var(--serif);font-size:13px;color:var(--teal-600);font-weight:700;letter-spacing:0.5px;margin-bottom:6px;}
+  .odi-section-title{font-family:var(--serif);font-size:23px;color:var(--teal-900);margin-bottom:14px;}
+  .odi-options{display:flex;flex-direction:column;gap:9px;}
+  .odi-option{
+    display:flex;align-items:flex-start;gap:12px;
+    border:1.5px solid var(--border);border-radius:10px;padding:13px 15px;
+    background:#fff;transition:border-color .15s,background .15s;
+  }
+  .odi-option:hover{border-color:var(--teal-600);background:var(--teal-50);}
+  .odi-option.selected{border-color:var(--teal-700);background:var(--teal-100);}
+  .odi-option input[type=radio]{margin-top:3px;accent-color:var(--teal-700);flex-shrink:0;}
+  .odi-option .opt-text{font-size:13.8px;color:var(--ink);flex:1;}
+  .odi-option .opt-score{
+    flex-shrink:0;font-size:11px;font-weight:700;color:var(--teal-700);
+    background:var(--teal-100);border-radius:20px;padding:2px 9px;height:fit-content;
+  }
+  .odi-note{margin-top:16px;font-size:12px;color:var(--ink-faint);border-top:1px dashed var(--border);padding-top:12px;}
+
+  .wizard-nav{display:flex;justify-content:space-between;margin-top:18px;gap:10px;}
+
+  /* ---------- Result / gauge ---------- */
+  .result-hero{
+    text-align:center;padding:32px 24px;border-radius:var(--radius-lg);
+    color:#fff;margin-bottom:20px;
+  }
+  .result-hero .r-pct{font-family:var(--serif);font-size:56px;font-weight:700;line-height:1;}
+  .result-hero .r-label{font-size:16px;font-weight:700;margin-top:6px;}
+  .result-hero .r-raw{font-size:12.5px;opacity:0.9;margin-top:8px;}
+  .gauge-track{height:14px;border-radius:8px;background:rgba(255,255,255,0.25);margin-top:16px;overflow:hidden;max-width:420px;margin-left:auto;margin-right:auto;}
+  .gauge-fill{height:100%;background:#fff;border-radius:8px;transition:width .5s ease;}
+
+  .detail-score-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 20px;}
+  .detail-score-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
+  .detail-score-row .dsr-name{color:var(--ink-soft);}
+  .detail-score-row .dsr-score{font-weight:700;color:var(--teal-800);font-variant-numeric:tabular-nums;}
+  .detail-score-row.missing .dsr-score{color:var(--red);}
+
+  .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 18px;font-size:13px;}
+  .info-grid .ig-item .ig-label{font-size:11px;color:var(--ink-faint);font-weight:600;text-transform:uppercase;letter-spacing:0.3px;}
+  .info-grid .ig-item .ig-value{color:var(--ink);margin-top:2px;}
+
+  .section-title-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .section-title-row h3{font-size:14px;color:var(--teal-900);font-weight:700;}
+
+  /* ---------- Badges ---------- */
+  .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:700;color:#fff;white-space:nowrap;}
+
+  /* ---------- Modal ---------- */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(11,58,61,0.45);
+    display:none;align-items:center;justify-content:center;z-index:1000;padding:20px;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal-box{
+    background:#fff;border-radius:var(--radius-lg);max-width:520px;width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,0.25);max-height:88vh;overflow-y:auto;
+  }
+  .modal-box.wide{max-width:820px;}
+  .modal-head{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+  .modal-head h3{font-size:16px;color:var(--teal-900);}
+  .modal-close{background:none;border:none;font-size:20px;color:var(--ink-faint);line-height:1;padding:4px;}
+  .modal-body{padding:20px 22px;}
+  .modal-foot{padding:16px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;}
+
+  /* ---------- Toast ---------- */
+  #toast-wrap{position:fixed;bottom:20px;right:20px;z-index:2000;display:flex;flex-direction:column;gap:8px;}
+  .toast{
+    background:var(--teal-900);color:#fff;padding:12px 16px;border-radius:9px;
+    font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,0.2);
+    display:flex;align-items:center;gap:10px;min-width:220px;
+    animation:toastIn .25s ease;
+  }
+  .toast.err{background:var(--red);}
+  .toast.warn{background:var(--amber);}
+  @keyframes toastIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+  /* ---------- Chart ---------- */
+  .chart-empty{padding:30px;text-align:center;color:var(--ink-faint);font-size:13px;}
+
+  /* ---------- Loading overlay ---------- */
+  .loading-overlay{position:fixed;inset:0;background:rgba(245,247,246,0.85);display:none;align-items:center;justify-content:center;z-index:3000;flex-direction:column;gap:10px;}
+  .loading-overlay.open{display:flex;}
+  .spinner{width:34px;height:34px;border:3px solid var(--teal-100);border-top-color:var(--teal-700);border-radius:50%;animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .divider{height:1px;background:var(--border);margin:18px 0;}
+  .muted{color:var(--ink-soft);font-size:12.5px;}
+  .callout{background:var(--teal-50);border:1px solid var(--teal-100);border-radius:9px;padding:13px 15px;font-size:12.5px;color:var(--teal-900);}
+  .callout.amber{background:#FBF3DF;border-color:#F0DFAE;color:#6B4E00;}
+
+  /* ---------- Print report (hidden on screen) ---------- */
+  #printReport{display:none;}
+
+  @media print{
+    body *{visibility:hidden;}
+    #printReport,#printReport *{visibility:visible;}
+    #printReport{display:block;position:absolute;top:0;left:0;width:100%;padding:0;}
+    header.topbar,nav.tabs,footer.appfooter,.no-print{display:none !important;}
+    .print-page{padding:14mm;font-family:var(--sans);color:#111;}
+    .print-header{text-align:center;border-bottom:2px solid #0F5257;padding-bottom:10px;margin-bottom:14px;}
+    .print-header h1{font-family:var(--serif);font-size:20px;color:#0F5257;}
+    .print-header p{font-size:11px;color:#555;margin-top:2px;}
+    .print-section{margin-bottom:14px;}
+    .print-section h2{font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:#0F5257;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:8px;}
+    .print-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:11.5px;}
+    .print-grid div span.k{color:#666;display:inline-block;min-width:120px;}
+    .print-result{text-align:center;border:1.5px solid #0F5257;border-radius:8px;padding:14px;margin-bottom:14px;}
+    .print-result .pr-pct{font-family:var(--serif);font-size:36px;color:#0F5257;}
+    .print-result .pr-label{font-size:13px;font-weight:700;margin-top:2px;}
+    .print-table{width:100%;border-collapse:collapse;font-size:11px;}
+    .print-table th,.print-table td{border:1px solid #ccc;padding:5px 7px;text-align:left;}
+    .print-table th{background:#F2F8F7;}
+    .print-notes{font-size:11.5px;white-space:pre-wrap;border:1px solid #ccc;border-radius:6px;padding:8px;min-height:40px;}
+    .print-sign{margin-top:36px;display:flex;justify-content:flex-end;}
+    .print-sign .sign-box{width:220px;text-align:center;}
+    .print-sign .sign-line{border-top:1px solid #333;margin-top:46px;padding-top:4px;font-size:11px;}
+    .print-footer{margin-top:20px;border-top:1px solid #ccc;padding-top:8px;font-size:10px;color:#777;display:flex;justify-content:space-between;}
+    @page{margin:12mm;}
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:920px){
+    .stat-grid{grid-template-columns:repeat(2,1fr);}
+    .form-grid,.form-grid.cols-3{grid-template-columns:1fr;}
+    .info-grid{grid-template-columns:repeat(2,1fr);}
+    .detail-score-grid{grid-template-columns:1fr;}
+  }
+  @media (max-width:600px){
+    header.topbar{padding:14px 16px;}
+    main{padding:16px;}
+    .stat-grid{grid-template-columns:1fr 1fr;}
+    .info-grid{grid-template-columns:1fr;}
+    .toolbar{flex-direction:column;align-items:stretch;}
+    .search-box{max-width:none;}
+    .modal-box{max-height:92vh;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar no-print">
+    <div class="brand">
+      <div class="brand-mark">ODI</div>
+      <div class="brand-text">
+        <h1>ODI Physiotherapy Assessment</h1>
+        <p>Digital Oswestry Disability Index Assessment</p>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost btn-sm" style="color:#fff;border-color:rgba(255,255,255,0.4);" onclick="openPrivacyModal()">Privasi</button>
+    </div>
+  </header>
+
+  <nav class="tabs no-print">
+    <button data-tab="dashboard" class="active" onclick="goTab('dashboard')">Dashboard</button>
+    <button data-tab="assessment" onclick="goTab('assessment')">Asesmen Baru</button>
+    <button data-tab="patients" onclick="goTab('patients')">Data Pasien</button>
+    <button data-tab="history" onclick="goTab('history')">Riwayat Asesmen</button>
+  </nav>
+
+  <main>
+
+    <!-- ================= DASHBOARD ================= -->
+    <section id="view-dashboard" class="view active">
+      <div class="page-head">
+        <h2>Dashboard</h2>
+        <p>Ringkasan aktivitas asesmen klinik fisioterapi Anda.</p>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">TOTAL PASIEN</div>
+          <div class="stat-value" id="stat-total-patients">0</div>
+          <div class="stat-sub">pasien terdaftar</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">TOTAL ASESMEN</div>
+          <div class="stat-value" id="stat-total-assessments">0</div>
+          <div class="stat-sub">asesmen tersimpan</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">ASESMEN HARI INI</div>
+          <div class="stat-value" id="stat-today-assessments">0</div>
+          <div class="stat-sub" id="stat-today-date">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">RATA-RATA ODI</div>
+          <div class="stat-value" id="stat-avg-odi">0%</div>
+          <div class="stat-sub">dari seluruh asesmen</div>
+        </div>
+      </div>
+
+      <div class="card card-pad" style="margin-bottom:20px;">
+        <div class="section-title-row"><h3>Distribusi Tingkat Disability</h3></div>
+        <div id="dist-chart-wrap"></div>
+      </div>
+
+      <div class="card card-pad">
+        <div class="section-title-row">
+          <h3>Asesmen Terbaru</h3>
+          <button class="btn btn-secondary btn-sm" onclick="goTab('history')">Lihat semua</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Tanggal</th><th>Nama Pasien</th><th>ID Pasien</th><th>Skor ODI</th><th>Interpretasi</th><th></th>
+            </tr></thead>
+            <tbody id="recent-assessments-body"></tbody>
+          </table>
+        </div>
+        <div id="recent-assessments-empty"></div>
+      </div>
+    </section>
+
+    <!-- ================= ASESMEN BARU ================= -->
+    <section id="view-assessment" class="view">
+
+      <!-- STEP A: patient data form -->
+      <div id="assess-step-patient">
+        <div class="page-head">
+          <h2>Asesmen Baru</h2>
+          <p>Lengkapi identitas pasien dan data pemeriksaan sebelum memulai kuesioner ODI.</p>
+        </div>
+        <div class="card card-pad">
+          <form id="patientForm" novalidate>
+            <div class="form-grid">
+              <div class="field-sub-title">Identitas Pasien</div>
+
+              <div class="field" id="f-patientId">
+                <label>Patient ID / No. Rekam Medis <span class="req">*</span></label>
+                <input type="text" name="patientId" id="in-patientId" placeholder="cth. RM-0001" autocomplete="off">
+                <span class="err">Patient ID wajib diisi.</span>
+              </div>
+              <div class="field" id="f-name">
+                <label>Nama Lengkap <span class="req">*</span></label>
+                <input type="text" name="name" id="in-name" placeholder="cth. Budi Santoso">
+                <span class="err">Nama wajib diisi.</span>
+              </div>
+              <div class="field" id="f-nik">
+                <label>NIK (opsional)</label>
+                <input type="text" name="nik" id="in-nik" maxlength="16" placeholder="16 digit NIK">
+              </div>
+              <div class="field" id="f-gender">
+                <label>Jenis Kelamin <span class="req">*</span></label>
+                <select name="gender" id="in-gender">
+                  <option value="">Pilih...</option>
+                  <option value="Laki-laki">Laki-laki</option>
+                  <option value="Perempuan">Perempuan</option>
+                </select>
+                <span class="err">Jenis kelamin wajib dipilih.</span>
+              </div>
+              <div class="field" id="f-birthPlace">
+                <label>Tempat Lahir</label>
+                <input type="text" name="birthPlace" id="in-birthPlace" placeholder="cth. Surakarta">
+              </div>
+              <div class="field" id="f-birthDate">
+                <label>Tanggal Lahir <span class="req">*</span></label>
+                <input type="date" name="birthDate" id="in-birthDate">
+                <span class="err">Tanggal lahir wajib diisi dan tidak boleh di masa depan.</span>
+              </div>
+              <div class="field" id="f-age">
+                <label>Usia (otomatis)</label>
+                <input type="text" id="in-age" disabled placeholder="-">
+              </div>
+              <div class="field" id="f-phone">
+                <label>Nomor Telepon</label>
+                <input type="text" name="phone" id="in-phone" placeholder="08xx-xxxx-xxxx">
+              </div>
+              <div class="field full" id="f-address">
+                <label>Alamat</label>
+                <input type="text" name="address" id="in-address" placeholder="Alamat lengkap">
+              </div>
+              <div class="field" id="f-occupation">
+                <label>Pekerjaan</label>
+                <input type="text" name="occupation" id="in-occupation" placeholder="cth. Karyawan Swasta">
+              </div>
+
+              <div class="field-sub-title">Data Pemeriksaan</div>
+              <div class="field" id="f-examDate">
+                <label>Tanggal Pemeriksaan <span class="req">*</span></label>
+                <input type="date" name="examDate" id="in-examDate">
+                <span class="err">Tanggal pemeriksaan wajib diisi.</span>
+              </div>
+              <div class="field" id="f-examiner">
+                <label>Nama Pemeriksa / Fisioterapis <span class="req">*</span></label>
+                <input type="text" name="examiner" id="in-examiner" placeholder="cth. Ft. Andi, S.Ft">
+                <span class="err">Nama pemeriksa wajib diisi.</span>
+              </div>
+              <div class="field full" id="f-chiefComplaint">
+                <label>Keluhan Utama</label>
+                <input type="text" name="chiefComplaint" id="in-chiefComplaint" placeholder="cth. Nyeri punggung bawah sejak 2 minggu">
+              </div>
+              <div class="field" id="f-medicalDx">
+                <label>Diagnosis Medis (opsional)</label>
+                <input type="text" name="medicalDx" id="in-medicalDx">
+              </div>
+              <div class="field" id="f-physioDx">
+                <label>Diagnosis Fisioterapi (opsional)</label>
+                <input type="text" name="physioDx" id="in-physioDx">
+              </div>
+              <div class="field full" id="f-clinicalNotes">
+                <label>Catatan Klinis</label>
+                <textarea name="clinicalNotes" id="in-clinicalNotes" placeholder="Catatan tambahan..."></textarea>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="btn-row" style="justify-content:flex-end;">
+              <button type="button" class="btn btn-ghost" onclick="cancelAssessment()">Batal</button>
+              <button type="submit" class="btn btn-primary">Lanjut ke Kuesioner ODI →</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- STEP B: ODI wizard -->
+      <div id="assess-step-odi" style="display:none;">
+        <div class="page-head">
+          <h2>Kuesioner Oswestry Disability Index (ODI)</h2>
+          <p>Pilih satu jawaban yang paling menggambarkan kondisi pasien pada tiap bagian.</p>
+        </div>
+
+        <div class="callout" style="margin-bottom:16px;">
+          Kuesioner ODI merupakan alat ukur disabilitas fungsional, bukan diagnosis tunggal. Hasil harus dipertimbangkan bersama anamnesis dan pemeriksaan klinis lainnya.
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-top">
+            <span class="p-label" id="odi-progress-label">Bagian 1 dari 10</span>
+            <span class="p-count" id="odi-progress-count">0/10 terjawab</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" id="odi-progress-fill" style="width:0%;"></div></div>
+          <div class="step-dots" id="odi-step-dots"></div>
+        </div>
+
+        <div class="card odi-section-card" id="odi-section-card">
+          <!-- rendered by JS -->
+        </div>
+
+        <div class="wizard-nav no-print">
+          <button class="btn btn-ghost" id="btn-odi-prev" onclick="odiPrev()">← Sebelumnya</button>
+          <div class="btn-row">
+            <button class="btn btn-secondary" onclick="odiReview()">Review Jawaban</button>
+            <button class="btn btn-primary" id="btn-odi-next" onclick="odiNext()">Selanjutnya →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP C: review -->
+      <div id="assess-step-review" style="display:none;">
+        <div class="page-head">
+          <h2>Review Jawaban</h2>
+          <p>Periksa kembali seluruh jawaban sebelum menghitung hasil akhir.</p>
+        </div>
+        <div class="card card-pad">
+          <div id="review-list"></div>
+          <div id="review-warning" class="callout amber" style="margin-top:14px;display:none;"></div>
+          <div class="divider"></div>
+          <div class="btn-row" style="justify-content:space-between;">
+            <button class="btn btn-ghost" onclick="backToWizardFromReview()">← Kembali ke Kuesioner</button>
+            <button class="btn btn-primary" onclick="finalizeAssessment()">Hitung &amp; Lihat Hasil</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP D: result -->
+      <div id="assess-step-result" style="display:none;"></div>
+    </section>
+
+    <!-- ================= DATA PASIEN ================= -->
+    <section id="view-patients" class="view">
+      <div class="page-head">
+        <h2>Data Pasien</h2>
+        <p>Cari, lihat, dan kelola data pasien tersimpan.</p>
+      </div>
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="search-box"><input type="text" id="patient-search" placeholder="Cari nama atau Patient ID..." oninput="renderPatientsTable()"></div>
+          <select class="filter-select" id="patient-sort" onchange="renderPatientsTable()">
+            <option value="name-asc">Nama (A-Z)</option>
+            <option value="name-desc">Nama (Z-A)</option>
+            <option value="recent">Pemeriksaan terbaru</option>
+            <option value="odi-desc">ODI tertinggi</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="goTab('assessment')">+ Asesmen Baru</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Patient ID</th><th>Nama</th><th>Jenis Kelamin</th><th>Usia</th><th>Pemeriksaan Terakhir</th><th>ODI Terakhir</th><th>Aksi</th>
+            </tr></thead>
+            <tbody id="patients-table-body"></tbody>
+          </table>
+        </div>
+        <div id="patients-empty"></div>
+      </div>
+    </section>
+
+    <!-- ================= RIWAYAT ASESMEN ================= -->
+    <section id="view-history" class="view">
+      <div class="page-head">
+        <h2>Riwayat Asesmen</h2>
+        <p>Lihat seluruh riwayat asesmen dan perkembangan skor ODI pasien dari waktu ke waktu.</p>
+      </div>
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="search-box"><input type="text" id="history-search" placeholder="Cari nama atau Patient ID..." oninput="renderHistoryTable()"></div>
+          <select class="filter-select" id="history-patient-filter" onchange="renderHistoryTable()">
+            <option value="">Semua Pasien</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="exportAllExcel()">Export Semua Data (Excel)</button>
+      </div>
+
+      <div class="card card-pad" id="history-chart-card" style="margin-bottom:16px;display:none;">
+        <div class="section-title-row"><h3 id="history-chart-title">Grafik Perkembangan ODI</h3></div>
+        <div id="history-chart-wrap"></div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Tanggal</th><th>Nama Pasien</th><th>Patient ID</th><th>ODI</th><th>Interpretasi</th><th>Pemeriksa</th><th>Aksi</th>
+            </tr></thead>
+            <tbody id="history-table-body"></tbody>
+          </table>
+        </div>
+        <div id="history-empty"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="appfooter no-print">
+    Prototype educational/clinical assessment tool — bukan sistem rekam medis resmi. Untuk penggunaan klinis nyata, tambahkan autentikasi, enkripsi, access control, audit log, dan penyimpanan backend yang sesuai regulasi.
+    <br>
+    <button onclick="openBackupModal()">Backup / Restore Data</button> ·
+    <button onclick="openDeleteAllModal()">Hapus Semua Data</button> ·
+    <button onclick="openPrivacyModal()">Privasi</button>
+  </footer>
+</div>
+
+<!-- ============ MODALS ============ -->
+
+<div class="modal-overlay no-print" id="modal-privacy">
+  <div class="modal-box">
+    <div class="modal-head"><h3>Privacy Notice</h3><button class="modal-close" onclick="closeModal('modal-privacy')">×</button></div>
+    <div class="modal-body">
+      <p style="font-size:13.5px;line-height:1.7;">
+        Data asesmen disimpan secara lokal pada perangkat/browser yang digunakan. Jangan menyimpan data pasien pada perangkat publik atau perangkat yang tidak aman. Pastikan pengelolaan data sesuai kebijakan privasi dan perlindungan data fasilitas pelayanan kesehatan.
+      </p>
+      <p style="font-size:13.5px;line-height:1.7;margin-top:10px;">
+        Aplikasi ini <strong>tidak</strong> mengirimkan data pasien ke server eksternal manapun, dan tidak menggunakan analytics/tracking apa pun.
+      </p>
+    </div>
+    <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal('modal-privacy')">Mengerti</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay no-print" id="modal-backup">
+  <div class="modal-box">
+    <div class="modal-head"><h3>Backup / Restore Data</h3><button class="modal-close" onclick="closeModal('modal-backup')">×</button></div>
+    <div class="modal-body">
+      <p class="muted" style="margin-bottom:12px;">Semua data disimpan lokal di browser ini. Gunakan backup untuk menyimpan salinan, atau restore untuk memulihkan dari file backup.</p>
+      <div class="btn-row" style="margin-bottom:16px;">
+        <button class="btn btn-secondary" onclick="backupData()">⬇ Backup ke JSON</button>
+      </div>
+      <div class="divider"></div>
+      <label style="font-size:12.5px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:8px;">Restore dari file backup (.json)</label>
+      <input type="file" id="restoreFileInput" accept=".json" style="margin-bottom:10px;">
+      <div class="callout amber">
+        Perhatian: memulihkan data akan <strong>menimpa data pasien/asesmen dengan ID yang sama</strong> dan menambahkan data baru dari file backup. Tindakan ini tidak dapat dibatalkan.
+      </div>
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn btn-danger" onclick="restoreData()">Restore Data</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay no-print" id="modal-deleteall">
+  <div class="modal-box">
+    <div class="modal-head"><h3>Hapus Semua Data</h3><button class="modal-close" onclick="closeModal('modal-deleteall')">×</button></div>
+    <div class="modal-body" id="deleteall-body">
+      <p style="font-size:13.5px;">Anda akan menghapus <strong>seluruh data pasien dan asesmen</strong> yang tersimpan di browser ini. Tindakan ini <strong>tidak dapat dibatalkan</strong>.</p>
+      <div class="btn-row" style="margin-top:16px;">
+        <button class="btn btn-ghost" onclick="closeModal('modal-deleteall')">Batal</button>
+        <button class="btn btn-danger" onclick="deleteAllStep2()">Saya Mengerti, Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay no-print" id="modal-deleteall2">
+  <div class="modal-box">
+    <div class="modal-head"><h3>Konfirmasi Terakhir</h3><button class="modal-close" onclick="closeModal('modal-deleteall2')">×</button></div>
+    <div class="modal-body">
+      <p style="font-size:13.5px;">Ketik <strong>HAPUS</strong> di bawah ini untuk mengonfirmasi penghapusan seluruh data secara permanen.</p>
+      <input type="text" id="deleteall-confirm-input" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;margin-top:12px;" placeholder="Ketik HAPUS">
+      <div class="btn-row" style="margin-top:16px;">
+        <button class="btn btn-ghost" onclick="closeModal('modal-deleteall2')">Batal</button>
+        <button class="btn btn-danger-solid" onclick="deleteAllConfirmed()">Hapus Permanen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay no-print" id="modal-confirm-generic">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="confirm-generic-title">Konfirmasi</h3><button class="modal-close" onclick="closeModal('modal-confirm-generic')">×</button></div>
+    <div class="modal-body">
+      <p id="confirm-generic-text" style="font-size:13.5px;"></p>
+      <div class="btn-row" style="margin-top:16px;justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="closeModal('modal-confirm-generic')">Batal</button>
+        <button class="btn btn-danger-solid" id="confirm-generic-action">Hapus</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay no-print" id="modal-patient-detail">
+  <div class="modal-box wide">
+    <div class="modal-head"><h3 id="pd-title">Detail Pasien</h3><button class="modal-close" onclick="closeModal('modal-patient-detail')">×</button></div>
+    <div class="modal-body" id="pd-body"></div>
+  </div>
+</div>
+
+<div class="modal-overlay no-print" id="modal-edit-patient">
+  <div class="modal-box wide">
+    <div class="modal-head"><h3>Edit Data Pasien</h3><button class="modal-close" onclick="closeModal('modal-edit-patient')">×</button></div>
+    <div class="modal-body" id="edit-patient-body"></div>
+  </div>
+</div>
+
+<div class="modal-overlay no-print" id="modal-leave-confirm">
+  <div class="modal-box">
+    <div class="modal-head"><h3>Asesmen Belum Disimpan</h3><button class="modal-close" onclick="closeModal('modal-leave-confirm')">×</button></div>
+    <div class="modal-body">
+      <p style="font-size:13.5px;">Anda memiliki asesmen yang sedang dikerjakan dan belum disimpan. Jika keluar sekarang, data yang sudah diisi akan hilang.</p>
+      <div class="btn-row" style="margin-top:16px;justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="closeModal('modal-leave-confirm')">Tetap di Sini</button>
+        <button class="btn btn-danger-solid" onclick="confirmLeaveAssessment()">Keluar Tanpa Menyimpan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-wrap" class="no-print"></div>
+<div class="loading-overlay no-print" id="loadingOverlay"><div class="spinner"></div><div style="font-size:13px;color:var(--ink-soft);">Memproses...</div></div>
+
+<!-- ============ HIDDEN PRINT REPORT ============ -->
+<div id="printReport"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+/* ==========================================================================
+   ODI PHYSIOTHERAPY ASSESSMENT — APPLICATION LOGIC
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. ODI QUESTIONNAIRE DATA (standard Oswestry Disability Index)
+   --------------------------------------------------------------------- */
+const ODI_SECTIONS = [
+  { key:'painIntensity', title:'Pain Intensity', options:[
+    'I can tolerate the pain I have without having to use pain medication.',
+    'The pain is bad but I manage without taking pain medication.',
+    'Pain medication provides me with complete relief from pain.',
+    'Pain medication provides me with moderate relief from pain.',
+    'Pain medication provides me with little relief from pain.',
+    'Pain medication has no effect on my pain and I do not use them.'
+  ]},
+  { key:'personalCare', title:'Personal Care', options:[
+    'I can look after myself normally without causing extra pain.',
+    'I can look after myself normally, but it causes extra pain.',
+    'It is painful to look after myself and I am slow and careful.',
+    'I need some help but manage most of my personal care.',
+    'I need help every day in most aspects of self-care.',
+    'I do not get dressed, I wash with difficulty and stay in bed.'
+  ]},
+  { key:'lifting', title:'Lifting', options:[
+    'I can lift heavy weights without extra pain.',
+    'I can lift heavy weights but it gives extra pain.',
+    'Pain prevents me from lifting heavy weights off the floor, but I can manage if they are conveniently positioned, e.g. on a table.',
+    'Pain prevents me from lifting heavy weights, but I can manage light to medium weights if they are conveniently positioned.',
+    'I can lift only very light weights.',
+    'I cannot lift or carry anything at all.'
+  ]},
+  { key:'walking', title:'Walking', options:[
+    'Pain does not prevent me walking any distance.',
+    'Pain prevents me from walking more than 1 mile.',
+    'Pain prevents me from walking more than 1/2 mile.',
+    'Pain prevents me from walking more than 100 yards.',
+    'I can only walk using a stick or crutches.',
+    'I am in bed most of the time and have to crawl to the toilet.'
+  ]},
+  { key:'sitting', title:'Sitting', options:[
+    'I can sit in any chair as long as I like.',
+    'I can only sit in my favourite chair as long as I like.',
+    'Pain prevents me from sitting more than 1 hour.',
+    'Pain prevents me from sitting more than 30 minutes.',
+    'Pain prevents me from sitting more than 10 minutes.',
+    'Pain prevents me from sitting at all.'
+  ]},
+  { key:'standing', title:'Standing', options:[
+    'I can stand as long as I want without extra pain.',
+    'I can stand as long as I want but it gives me extra pain.',
+    'Pain prevents me from standing for more than 1 hour.',
+    'Pain prevents me from standing for more than 30 minutes.',
+    'Pain prevents me from standing for more than 10 minutes.',
+    'Pain prevents me from standing at all.'
+  ]},
+  { key:'sleeping', title:'Sleeping', options:[
+    'My sleep is never disturbed by pain.',
+    'My sleep is occasionally disturbed by pain.',
+    'Because of pain I have less than 6 hours sleep.',
+    'Because of pain I have less than 4 hours sleep.',
+    'Because of pain I have less than 2 hours sleep.',
+    'Pain prevents me from sleeping at all.'
+  ]},
+  { key:'socialLife', title:'Social Life', options:[
+    'My social life is normal and gives me no extra pain.',
+    'My social life is normal but increases the degree of pain.',
+    'Pain has no significant effect on my social life apart from limiting my more energetic interests, e.g. sport.',
+    'Pain has restricted my social life and I do not go out as often.',
+    'Pain has restricted my social life to my home.',
+    'I have no social life because of pain.'
+  ]},
+  { key:'travelling', title:'Travelling', options:[
+    'I can travel anywhere without pain.',
+    'I can travel anywhere but it gives extra pain.',
+    'Pain is bad but I manage journeys over two hours.',
+    'Pain restricts me to journeys of less than one hour.',
+    'Pain restricts me to short necessary journeys under 30 minutes.',
+    'Pain prevents me from travelling except to receive treatment.'
+  ]},
+  { key:'employment', title:'Employment / Homemaking', options:[
+    'My normal homemaking/job activities do not cause pain.',
+    'My normal homemaking/job activities increase my pain, but I can still perform all that is required of me.',
+    'I can perform most of my homemaking/job duties, but pain prevents me from performing more physically stressful activities (e.g. lifting, vacuuming).',
+    'Pain prevents me from doing anything but light duties.',
+    'Pain prevents me from doing even light duties.',
+    'Pain prevents me from performing any job or homemaking chores.'
+  ]}
+];
+
+function interpretODI(pct){
+  if(pct<=20) return {label:'Minimal Disability', color:'var(--green)', hex:'#1E8A5C'};
+  if(pct<=40) return {label:'Moderate Disability', color:'var(--amber)', hex:'#B9860A'};
+  if(pct<=60) return {label:'Severe Disability', color:'var(--orange)', hex:'#C1621B'};
+  if(pct<=80) return {label:'Crippling Disability', color:'var(--red)', hex:'#C13B3B'};
+  return {label:'Bed-bound / Exaggerating Symptoms', color:'var(--maroon)', hex:'#7A1F1F'};
+}
+
+/* ---------------------------------------------------------------------
+   2. INDEXEDDB LAYER
+   --------------------------------------------------------------------- */
+const DB_NAME = 'odiClinicDB';
+const DB_VERSION = 1;
+let dbInstance = null;
+
+function dbOpen(){
+  if(dbInstance) return Promise.resolve(dbInstance);
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('patients')){
+        db.createObjectStore('patients',{keyPath:'patientId'});
+      }
+      if(!db.objectStoreNames.contains('assessments')){
+        const store = db.createObjectStore('assessments',{keyPath:'id',autoIncrement:true});
+        store.createIndex('patientId','patientId',{unique:false});
+      }
+    };
+    req.onsuccess = (e)=>{ dbInstance = e.target.result; resolve(dbInstance); };
+    req.onerror = (e)=>{ reject(e.target.error); };
+  });
+}
+function tx(storeNames, mode){
+  return dbOpen().then(db=>db.transaction(storeNames, mode));
+}
+function dbPut(storeName, obj){
+  return tx([storeName],'readwrite').then(t=>new Promise((resolve,reject)=>{
+    const r = t.objectStore(storeName).put(obj);
+    r.onsuccess = ()=>resolve(r.result);
+    r.onerror = ()=>reject(r.error);
+  }));
+}
+function dbGet(storeName, key){
+  return tx([storeName],'readonly').then(t=>new Promise((resolve,reject)=>{
+    const r = t.objectStore(storeName).get(key);
+    r.onsuccess = ()=>resolve(r.result);
+    r.onerror = ()=>reject(r.error);
+  }));
+}
+function dbGetAll(storeName){
+  return tx([storeName],'readonly').then(t=>new Promise((resolve,reject)=>{
+    const r = t.objectStore(storeName).getAll();
+    r.onsuccess = ()=>resolve(r.result || []);
+    r.onerror = ()=>reject(r.error);
+  }));
+}
+function dbDelete(storeName, key){
+  return tx([storeName],'readwrite').then(t=>new Promise((resolve,reject)=>{
+    const r = t.objectStore(storeName).delete(key);
+    r.onsuccess = ()=>resolve();
+    r.onerror = ()=>reject(r.error);
+  }));
+}
+function dbGetByIndex(storeName, indexName, value){
+  return tx([storeName],'readonly').then(t=>new Promise((resolve,reject)=>{
+    const r = t.objectStore(storeName).index(indexName).getAll(value);
+    r.onsuccess = ()=>resolve(r.result || []);
+    r.onerror = ()=>reject(r.error);
+  }));
+}
+function dbClear(storeName){
+  return tx([storeName],'readwrite').then(t=>new Promise((resolve,reject)=>{
+    const r = t.objectStore(storeName).clear();
+    r.onsuccess = ()=>resolve();
+    r.onerror = ()=>reject(r.error);
+  }));
+}
+
+/* ---------------------------------------------------------------------
+   3. APP STATE
+   --------------------------------------------------------------------- */
+let ALL_PATIENTS = [];
+let ALL_ASSESSMENTS = [];
+
+let draftPatient = null;       // patient info object being built in "Asesmen Baru"
+let draftAnswers = new Array(10).fill(null); // 0-5 or null
+let draftStep = 0;             // current ODI section index (0-9)
+let draftEditingAssessmentId = null; // if editing an existing assessment
+let hasUnsavedAssessment = false;
+let pendingTabAfterLeaveConfirm = null;
+
+/* ---------------------------------------------------------------------
+   4. INIT
+   --------------------------------------------------------------------- */
+window.addEventListener('DOMContentLoaded', init);
+
+async function init(){
+  await dbOpen();
+  await reloadAllData();
+  bindPatientFormEvents();
+  document.getElementById('in-examDate').value = todayStr();
+  renderDashboard();
+  renderPatientsTable();
+  renderHistoryTable();
+}
+
+async function reloadAllData(){
+  ALL_PATIENTS = await dbGetAll('patients');
+  ALL_ASSESSMENTS = await dbGetAll('assessments');
+  ALL_ASSESSMENTS.sort((a,b)=> new Date(b.examDate) - new Date(a.examDate) || b.id - a.id);
+}
+
+/* ---------------------------------------------------------------------
+   5. NAVIGATION
+   --------------------------------------------------------------------- */
+function goTab(tab, opts){
+  opts = opts || {};
+  if(!opts.force && tab !== 'assessment' && hasUnsavedAssessment){
+    pendingTabAfterLeaveConfirm = tab;
+    openModal('modal-leave-confirm');
+    return;
+  }
+  if(tab !== 'assessment'){
+    resetAssessmentDraft(true);
+  }
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+tab).classList.add('active');
+  if(tab==='dashboard') renderDashboard();
+  if(tab==='patients') renderPatientsTable();
+  if(tab==='history') renderHistoryTable();
+  if(tab==='assessment' && draftStep===0 && !draftPatient){
+    showAssessStep('patient');
+  }
+  window.scrollTo({top:0,behavior:'instant'});
+}
+function confirmLeaveAssessment(){
+  closeModal('modal-leave-confirm');
+  resetAssessmentDraft(true);
+  if(pendingTabAfterLeaveConfirm){
+    goTab(pendingTabAfterLeaveConfirm, {force:true});
+    pendingTabAfterLeaveConfirm = null;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   6. UTILITIES
+   --------------------------------------------------------------------- */
+function todayStr(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+function formatDate(dstr){
+  if(!dstr) return '-';
+  const d = new Date(dstr+'T00:00:00');
+  if(isNaN(d)) return dstr;
+  return d.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'});
+}
+function formatDateTime(iso){
+  if(!iso) return '-';
+  const d = new Date(iso);
+  return d.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'})+' '+d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+}
+function calcAge(birthDateStr, refDateStr){
+  if(!birthDateStr) return null;
+  const bd = new Date(birthDateStr+'T00:00:00');
+  const ref = refDateStr ? new Date(refDateStr+'T00:00:00') : new Date();
+  if(isNaN(bd)) return null;
+  let age = ref.getFullYear() - bd.getFullYear();
+  const m = ref.getMonth() - bd.getMonth();
+  if(m < 0 || (m===0 && ref.getDate() < bd.getDate())) age--;
+  return age >= 0 ? age : null;
+}
+function escapeHtml(str){
+  if(str===undefined || str===null) return '';
+  return String(str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function showToast(msg, type){
+  const wrap = document.getElementById('toast-wrap');
+  const t = document.createElement('div');
+  t.className = 'toast' + (type ? ' '+type : '');
+  t.textContent = msg;
+  wrap.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); }, 2800);
+}
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+function setLoading(on){ document.getElementById('loadingOverlay').classList.toggle('open', !!on); }
+function openPrivacyModal(){ openModal('modal-privacy'); }
+
+/* Scoring core */
+function computeScore(answers){
+  const answered = answers.filter(a=>a!==null && a!==undefined);
+  const total = answered.reduce((s,v)=>s+v,0);
+  const maxPossible = answered.length * 5;
+  const pct = maxPossible>0 ? Math.round((total/maxPossible)*1000)/10 : 0;
+  return { totalScore: total, maxScore: maxPossible, answeredCount: answered.length, odiPercent: pct };
+}
+
+/* ---------------------------------------------------------------------
+   7. PATIENT FORM (Step A)
+   --------------------------------------------------------------------- */
+function bindPatientFormEvents(){
+  document.getElementById('in-birthDate').addEventListener('change', ()=>{
+    const bd = document.getElementById('in-birthDate').value;
+    const age = calcAge(bd);
+    document.getElementById('in-age').value = age!==null ? age + ' tahun' : '-';
+  });
+  document.getElementById('patientForm').addEventListener('submit', onPatientFormSubmit);
+  document.getElementById('patientForm').addEventListener('input', ()=>{ hasUnsavedAssessment = true; });
+}
+function fieldError(id, show){
+  const el = document.getElementById(id);
+  if(el) el.classList.toggle('invalid', !!show);
+}
+function validatePatientForm(){
+  let ok = true;
+  const patientId = document.getElementById('in-patientId').value.trim();
+  const name = document.getElementById('in-name').value.trim();
+  const gender = document.getElementById('in-gender').value;
+  const birthDate = document.getElementById('in-birthDate').value;
+  const examDate = document.getElementById('in-examDate').value;
+  const examiner = document.getElementById('in-examiner').value.trim();
+
+  fieldError('f-patientId', !patientId); if(!patientId) ok=false;
+  fieldError('f-name', !name); if(!name) ok=false;
+  fieldError('f-gender', !gender); if(!gender) ok=false;
+
+  let birthDateInvalid = !birthDate || new Date(birthDate) > new Date();
+  fieldError('f-birthDate', birthDateInvalid); if(birthDateInvalid) ok=false;
+
+  fieldError('f-examDate', !examDate); if(!examDate) ok=false;
+  fieldError('f-examiner', !examiner); if(!examiner) ok=false;
+
+  return ok;
+}
+function onPatientFormSubmit(e){
+  e.preventDefault();
+  if(!validatePatientForm()){
+    showToast('Lengkapi field yang wajib diisi.', 'err');
+    return;
+  }
+  const bd = document.getElementById('in-birthDate').value;
+  draftPatient = {
+    patientId: document.getElementById('in-patientId').value.trim(),
+    name: document.getElementById('in-name').value.trim(),
+    nik: document.getElementById('in-nik').value.trim(),
+    gender: document.getElementById('in-gender').value,
+    birthPlace: document.getElementById('in-birthPlace').value.trim(),
+    birthDate: bd,
+    age: calcAge(bd),
+    phone: document.getElementById('in-phone').value.trim(),
+    address: document.getElementById('in-address').value.trim(),
+    occupation: document.getElementById('in-occupation').value.trim(),
+    examDate: document.getElementById('in-examDate').value,
+    examiner: document.getElementById('in-examiner').value.trim(),
+    chiefComplaint: document.getElementById('in-chiefComplaint').value.trim(),
+    medicalDx: document.getElementById('in-medicalDx').value.trim(),
+    physioDx: document.getElementById('in-physioDx').value.trim(),
+    clinicalNotes: document.getElementById('in-clinicalNotes').value.trim()
+  };
+  hasUnsavedAssessment = true;
+  draftStep = 0;
+  showAssessStep('odi');
+  renderOdiStep();
+}
+function cancelAssessment(){
+  if(hasUnsavedAssessment){
+    pendingTabAfterLeaveConfirm = 'dashboard';
+    openModal('modal-leave-confirm');
+  } else {
+    goTab('dashboard', {force:true});
+  }
+}
+function showAssessStep(step){
+  document.getElementById('assess-step-patient').style.display = step==='patient' ? '' : 'none';
+  document.getElementById('assess-step-odi').style.display = step==='odi' ? '' : 'none';
+  document.getElementById('assess-step-review').style.display = step==='review' ? '' : 'none';
+  document.getElementById('assess-step-result').style.display = step==='result' ? '' : 'none';
+}
+
+/* Prefill patient form for "asesmen baru untuk pasien ini" from Data Pasien */
+function startAssessmentForPatient(patientId){
+  const p = ALL_PATIENTS.find(x=>x.patientId===patientId);
+  if(!p) return;
+  goTab('assessment', {force:true});
+  document.getElementById('in-patientId').value = p.patientId;
+  document.getElementById('in-name').value = p.name || '';
+  document.getElementById('in-nik').value = p.nik || '';
+  document.getElementById('in-gender').value = p.gender || '';
+  document.getElementById('in-birthPlace').value = p.birthPlace || '';
+  document.getElementById('in-birthDate').value = p.birthDate || '';
+  document.getElementById('in-age').value = p.birthDate ? (calcAge(p.birthDate)+' tahun') : '-';
+  document.getElementById('in-phone').value = p.phone || '';
+  document.getElementById('in-address').value = p.address || '';
+  document.getElementById('in-occupation').value = p.occupation || '';
+  document.getElementById('in-examDate').value = todayStr();
+  document.getElementById('in-examiner').value = '';
+  document.getElementById('in-chiefComplaint').value = '';
+  document.getElementById('in-medicalDx').value = '';
+  document.getElementById('in-physioDx').value = '';
+  document.getElementById('in-clinicalNotes').value = '';
+  showAssessStep('patient');
+}
+
+function resetAssessmentDraft(silent){
+  draftPatient = null;
+  draftAnswers = new Array(10).fill(null);
+  draftStep = 0;
+  draftEditingAssessmentId = null;
+  hasUnsavedAssessment = false;
+  const form = document.getElementById('patientForm');
+  if(form) form.reset();
+  document.querySelectorAll('#patientForm .field').forEach(f=>f.classList.remove('invalid'));
+  document.getElementById('in-examDate').value = todayStr();
+  document.getElementById('in-age').value = '-';
+  showAssessStep('patient');
+}
+
+/* ---------------------------------------------------------------------
+   8. ODI WIZARD (Step B)
+   --------------------------------------------------------------------- */
+function renderOdiStep(){
+  const s = ODI_SECTIONS[draftStep];
+  const card = document.getElementById('odi-section-card');
+  let html = `<div class="odi-section-num">SECTION ${draftStep+1} / 10</div>`;
+  html += `<div class="odi-section-title">${s.title}</div>`;
+  html += `<div class="odi-options">`;
+  s.options.forEach((opt,i)=>{
+    const selected = draftAnswers[draftStep]===i;
+    html += `
+      <label class="odi-option ${selected?'selected':''}" onclick="selectOdiAnswer(${draftStep},${i})">
+        <input type="radio" name="odi-q${draftStep}" ${selected?'checked':''} onchange="selectOdiAnswer(${draftStep},${i})">
+        <span class="opt-text">${escapeHtml(opt)}</span>
+        <span class="opt-score">Score ${i}</span>
+      </label>`;
+  });
+  html += `</div>`;
+  html += `<div class="odi-note">Hasil ODI merupakan alat ukur disabilitas, bukan diagnosis tunggal.</div>`;
+  card.innerHTML = html;
+
+  document.getElementById('odi-progress-label').textContent = `Bagian ${draftStep+1} dari 10 — ${s.title}`;
+  const answeredCount = draftAnswers.filter(a=>a!==null).length;
+  document.getElementById('odi-progress-count').textContent = `${answeredCount}/10 terjawab`;
+  document.getElementById('odi-progress-fill').style.width = ((draftStep+1)/10*100)+'%';
+
+  let dots = '';
+  for(let i=0;i<10;i++){
+    let cls = '';
+    if(i===draftStep) cls='current';
+    else if(draftAnswers[i]!==null) cls='done';
+    dots += `<div class="step-dot ${cls}" onclick="jumpToStep(${i})" title="Bagian ${i+1}: ${ODI_SECTIONS[i].title}">${i+1}</div>`;
+  }
+  document.getElementById('odi-step-dots').innerHTML = dots;
+
+  document.getElementById('btn-odi-prev').disabled = draftStep===0;
+  document.getElementById('btn-odi-next').textContent = draftStep===9 ? 'Review Jawaban →' : 'Selanjutnya →';
+}
+function selectOdiAnswer(sectionIdx, optIdx){
+  draftAnswers[sectionIdx] = optIdx;
+  hasUnsavedAssessment = true;
+  renderOdiStep();
+}
+function jumpToStep(i){
+  draftStep = i;
+  renderOdiStep();
+}
+function odiPrev(){
+  if(draftStep>0){ draftStep--; renderOdiStep(); }
+}
+function odiNext(){
+  if(draftStep<9){ draftStep++; renderOdiStep(); }
+  else { odiReview(); }
+}
+function odiReview(){
+  showAssessStep('review');
+  renderReview();
+}
+function backToWizardFromReview(){
+  showAssessStep('odi');
+  renderOdiStep();
+}
+function renderReview(){
+  let html = '';
+  let missingList = [];
+  ODI_SECTIONS.forEach((s,i)=>{
+    const val = draftAnswers[i];
+    const missing = val===null;
+    if(missing) missingList.push(s.title);
+    html += `
+      <div class="detail-score-row ${missing?'missing':''}">
+        <span class="dsr-name">${i+1}. ${s.title}</span>
+        <span class="dsr-score">${missing? 'Belum dijawab' : val + ' / 5'}</span>
+      </div>`;
+  });
+  document.getElementById('review-list').innerHTML = html;
+  const warn = document.getElementById('review-warning');
+  if(missingList.length){
+    warn.style.display = 'block';
+    warn.textContent = 'Please complete all required sections. Bagian belum dijawab: ' + missingList.join(', ') + '. Skor tetap dapat dihitung berdasarkan bagian yang sudah dijawab, namun disarankan melengkapi seluruh bagian.';
+  } else {
+    warn.style.display = 'none';
+  }
+}
+function finalizeAssessment(){
+  renderAssessmentResult();
+}
+
+/* ---------------------------------------------------------------------
+   9. RESULT (Step D) + SAVE
+   --------------------------------------------------------------------- */
+function renderAssessmentResult(){
+  const score = computeScore(draftAnswers);
+  const interp = interpretODI(score.odiPercent);
+  const p = draftPatient;
+
+  let detailRows = '';
+  ODI_SECTIONS.forEach((s,i)=>{
+    const val = draftAnswers[i];
+    detailRows += `
+      <div class="detail-score-row ${val===null?'missing':''}">
+        <span class="dsr-name">${s.title}</span>
+        <span class="dsr-score">${val===null?'—':val+' / 5'}</span>
+      </div>`;
+  });
+
+  const html = `
+    <div class="page-head"><h2>Hasil Asesmen</h2><p>Ringkasan hasil pengukuran ODI untuk ${escapeHtml(p.name)}.</p></div>
+
+    <div class="result-hero" style="background:${interp.hex};">
+      <div class="r-pct">${score.odiPercent}%</div>
+      <div class="r-label">${interp.label}</div>
+      <div class="r-raw">Raw Score: ${score.totalScore} / ${score.maxScore}${score.answeredCount<10 ? ' ('+score.answeredCount+'/10 bagian terjawab)' : ''}</div>
+      <div class="gauge-track"><div class="gauge-fill" style="width:${score.odiPercent}%;"></div></div>
+    </div>
+
+    <div class="card card-pad" style="margin-bottom:16px;">
+      <div class="section-title-row"><h3>Patient Information</h3></div>
+      <div class="info-grid">
+        <div class="ig-item"><div class="ig-label">Patient ID</div><div class="ig-value">${escapeHtml(p.patientId)}</div></div>
+        <div class="ig-item"><div class="ig-label">Nama</div><div class="ig-value">${escapeHtml(p.name)}</div></div>
+        <div class="ig-item"><div class="ig-label">Jenis Kelamin</div><div class="ig-value">${escapeHtml(p.gender)}</div></div>
+        <div class="ig-item"><div class="ig-label">Usia</div><div class="ig-value">${p.age!==null?p.age+' tahun':'-'}</div></div>
+        <div class="ig-item"><div class="ig-label">Tanggal Pemeriksaan</div><div class="ig-value">${formatDate(p.examDate)}</div></div>
+        <div class="ig-item"><div class="ig-label">Pemeriksa</div><div class="ig-value">${escapeHtml(p.examiner)}</div></div>
+      </div>
+    </div>
+
+    <div class="card card-pad" style="margin-bottom:16px;">
+      <div class="section-title-row"><h3>Detail Scores</h3></div>
+      <div class="detail-score-grid">${detailRows}</div>
+    </div>
+
+    <div class="card card-pad" style="margin-bottom:16px;">
+      <div class="section-title-row"><h3>Clinical Notes</h3></div>
+      <p style="font-size:13px;color:var(--ink-soft);white-space:pre-wrap;">${escapeHtml(p.clinicalNotes) || '—'}</p>
+    </div>
+
+    <div class="callout" style="margin-bottom:16px;">
+      Interpretasi ODI merupakan bagian dari asesmen fisioterapi dan harus dipertimbangkan bersama anamnesis, pemeriksaan fisik, pemeriksaan fungsional, dan pemeriksaan penunjang bila diperlukan.
+    </div>
+
+    <div class="btn-row no-print">
+      <button class="btn btn-primary" onclick="saveCurrentAssessment()">💾 Simpan Asesmen</button>
+      <button class="btn btn-secondary" onclick="printCurrentAssessment()">🖨 Cetak PDF</button>
+      <button class="btn btn-secondary" onclick="exportSingleAssessmentExcel()">⬇ Export Excel</button>
+      <button class="btn btn-ghost" onclick="startAnotherAssessment()">+ Asesmen Baru</button>
+      <button class="btn btn-ghost" onclick="goTab('dashboard',{force:true})">Kembali ke Dashboard</button>
+    </div>
+  `;
+  document.getElementById('assess-step-result').innerHTML = html;
+  showAssessStep('result');
+  window.scrollTo({top:0,behavior:'instant'});
+}
+
+async function saveCurrentAssessment(){
+  if(!draftPatient) return;
+  setLoading(true);
+  try{
+    const now = new Date().toISOString();
+    const existingPatient = await dbGet('patients', draftPatient.patientId);
+    const patientRecord = {
+      patientId: draftPatient.patientId,
+      name: draftPatient.name,
+      nik: draftPatient.nik,
+      gender: draftPatient.gender,
+      birthPlace: draftPatient.birthPlace,
+      birthDate: draftPatient.birthDate,
+      phone: draftPatient.phone,
+      address: draftPatient.address,
+      occupation: draftPatient.occupation,
+      createdAt: existingPatient ? existingPatient.createdAt : now,
+      updatedAt: now
+    };
+    await dbPut('patients', patientRecord);
+
+    const score = computeScore(draftAnswers);
+    const interp = interpretODI(score.odiPercent);
+    const assessmentRecord = {
+      patientId: draftPatient.patientId,
+      patientName: draftPatient.name,
+      examDate: draftPatient.examDate,
+      examiner: draftPatient.examiner,
+      chiefComplaint: draftPatient.chiefComplaint,
+      medicalDx: draftPatient.medicalDx,
+      physioDx: draftPatient.physioDx,
+      clinicalNotes: draftPatient.clinicalNotes,
+      answers: draftAnswers.slice(),
+      totalScore: score.totalScore,
+      maxScore: score.maxScore,
+      odiPercent: score.odiPercent,
+      interpretation: interp.label,
+      createdAt: now,
+      updatedAt: now
+    };
+    if(draftEditingAssessmentId){
+      assessmentRecord.id = draftEditingAssessmentId;
+      const old = ALL_ASSESSMENTS.find(a=>a.id===draftEditingAssessmentId);
+      if(old) assessmentRecord.createdAt = old.createdAt;
+    }
+    const id = await dbPut('assessments', assessmentRecord);
+    draftEditingAssessmentId = id;
+    hasUnsavedAssessment = false;
+    await reloadAllData();
+    showToast('Asesmen berhasil disimpan.');
+    renderDashboard();
+  }catch(err){
+    console.error(err);
+    showToast('Gagal menyimpan asesmen.', 'err');
+  }finally{
+    setLoading(false);
+  }
+}
+function startAnotherAssessment(){
+  resetAssessmentDraft(true);
+  goTab('assessment', {force:true});
+}
+
+/* ---------------------------------------------------------------------
+   10. DASHBOARD
+   --------------------------------------------------------------------- */
+function renderDashboard(){
+  document.getElementById('stat-total-patients').textContent = ALL_PATIENTS.length;
+  document.getElementById('stat-total-assessments').textContent = ALL_ASSESSMENTS.length;
+
+  const today = todayStr();
+  const todayCount = ALL_ASSESSMENTS.filter(a=>a.examDate===today).length;
+  document.getElementById('stat-today-assessments').textContent = todayCount;
+  document.getElementById('stat-today-date').textContent = formatDate(today);
+
+  const avg = ALL_ASSESSMENTS.length ? (ALL_ASSESSMENTS.reduce((s,a)=>s+a.odiPercent,0)/ALL_ASSESSMENTS.length) : 0;
+  document.getElementById('stat-avg-odi').textContent = (Math.round(avg*10)/10) + '%';
+
+  // Distribution
+  const bands = [
+    {label:'Minimal (0-20%)', min:0,max:20, color:'#1E8A5C'},
+    {label:'Moderate (21-40%)', min:21,max:40, color:'#B9860A'},
+    {label:'Severe (41-60%)', min:41,max:60, color:'#C1621B'},
+    {label:'Crippling (61-80%)', min:61,max:80, color:'#C13B3B'},
+    {label:'Bed-bound (81-100%)', min:81,max:100, color:'#7A1F1F'}
+  ];
+  const counts = bands.map(b=>ALL_ASSESSMENTS.filter(a=>a.odiPercent>=b.min && a.odiPercent<=b.max).length);
+  const maxCount = Math.max(1,...counts);
+  let distHtml = '';
+  bands.forEach((b,i)=>{
+    const pct = (counts[i]/maxCount*100);
+    distHtml += `
+      <div class="dist-row">
+        <span class="dist-label">${b.label}</span>
+        <div class="dist-bar-track"><div class="dist-bar-fill" style="width:${pct}%;background:${b.color};"></div></div>
+        <span class="dist-count">${counts[i]}</span>
+      </div>`;
+  });
+  document.getElementById('dist-chart-wrap').innerHTML = ALL_ASSESSMENTS.length ? distHtml : '<div class="empty-state"><p>Belum ada data asesmen.</p></div>';
+
+  // Recent assessments
+  const recent = ALL_ASSESSMENTS.slice(0,8);
+  const body = document.getElementById('recent-assessments-body');
+  const emptyWrap = document.getElementById('recent-assessments-empty');
+  if(recent.length===0){
+    body.innerHTML = '';
+    emptyWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">🗂️</div><h4>Belum ada asesmen</h4><p>Mulai asesmen baru untuk melihat data di sini.</p></div>`;
+  } else {
+    emptyWrap.innerHTML = '';
+    body.innerHTML = recent.map(a=>`
+      <tr>
+        <td>${formatDate(a.examDate)}</td>
+        <td>${escapeHtml(a.patientName)}</td>
+        <td>${escapeHtml(a.patientId)}</td>
+        <td>${a.odiPercent}%</td>
+        <td>${badgeForInterp(a.interpretation)}</td>
+        <td><button class="cell-link" onclick="viewAssessment(${a.id})">Lihat</button></td>
+      </tr>`).join('');
+  }
+}
+function badgeForInterp(label){
+  const map = {
+    'Minimal Disability':'#1E8A5C',
+    'Moderate Disability':'#B9860A',
+    'Severe Disability':'#C1621B',
+    'Crippling Disability':'#C13B3B',
+    'Bed-bound / Exaggerating Symptoms':'#7A1F1F'
+  };
+  const color = map[label] || '#54655F';
+  return `<span class="badge" style="background:${color};">${escapeHtml(label)}</span>`;
+}
+
+/* ---------------------------------------------------------------------
+   11. DATA PASIEN
+   --------------------------------------------------------------------- */
+function latestAssessmentFor(patientId){
+  const list = ALL_ASSESSMENTS.filter(a=>a.patientId===patientId);
+  return list.length ? list[0] : null; // ALL_ASSESSMENTS already sorted desc by examDate
+}
+function renderPatientsTable(){
+  const q = (document.getElementById('patient-search').value || '').toLowerCase().trim();
+  const sortMode = document.getElementById('patient-sort').value;
+
+  let rows = ALL_PATIENTS.filter(p=>{
+    if(!q) return true;
+    return (p.name||'').toLowerCase().includes(q) || (p.patientId||'').toLowerCase().includes(q);
+  }).map(p=>{
+    const last = latestAssessmentFor(p.patientId);
+    return {p, last};
+  });
+
+  if(sortMode==='name-asc') rows.sort((a,b)=>a.p.name.localeCompare(b.p.name));
+  else if(sortMode==='name-desc') rows.sort((a,b)=>b.p.name.localeCompare(a.p.name));
+  else if(sortMode==='recent') rows.sort((a,b)=>{
+    const da = a.last ? new Date(a.last.examDate) : new Date(0);
+    const db_ = b.last ? new Date(b.last.examDate) : new Date(0);
+    return db_ - da;
+  });
+  else if(sortMode==='odi-desc') rows.sort((a,b)=>(b.last?b.last.odiPercent:-1) - (a.last?a.last.odiPercent:-1));
+
+  const body = document.getElementById('patients-table-body');
+  const emptyWrap = document.getElementById('patients-empty');
+
+  if(ALL_PATIENTS.length===0){
+    body.innerHTML='';
+    emptyWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">🧑‍⚕️</div><h4>Belum ada pasien</h4><p>Data pasien akan muncul setelah Anda menyimpan asesmen pertama.</p></div>`;
+    return;
+  }
+  if(rows.length===0){
+    body.innerHTML='';
+    emptyWrap.innerHTML = `<div class="empty-state"><h4>Tidak ditemukan</h4><p>Tidak ada pasien yang cocok dengan pencarian.</p></div>`;
+    return;
+  }
+  emptyWrap.innerHTML='';
+  body.innerHTML = rows.map(({p,last})=>`
+    <tr>
+      <td>${escapeHtml(p.patientId)}</td>
+      <td><button class="cell-link" onclick="openPatientDetail('${escapeJs(p.patientId)}')">${escapeHtml(p.name)}</button></td>
+      <td>${escapeHtml(p.gender)}</td>
+      <td>${p.birthDate ? calcAge(p.birthDate)+' th' : '-'}</td>
+      <td>${last ? formatDate(last.examDate) : '-'}</td>
+      <td>${last ? last.odiPercent+'% · '+badgeForInterp(last.interpretation) : '-'}</td>
+      <td>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" onclick="openPatientDetail('${escapeJs(p.patientId)}')">Lihat</button>
+          <button class="btn btn-ghost btn-sm" onclick="startAssessmentForPatient('${escapeJs(p.patientId)}')">+ Asesmen</button>
+          <button class="btn btn-ghost btn-sm" onclick="openEditPatient('${escapeJs(p.patientId)}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="askDeletePatient('${escapeJs(p.patientId)}')">Hapus</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+function escapeJs(str){ return String(str).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+function openPatientDetail(patientId){
+  const p = ALL_PATIENTS.find(x=>x.patientId===patientId);
+  if(!p) return;
+  const history = ALL_ASSESSMENTS.filter(a=>a.patientId===patientId);
+  document.getElementById('pd-title').textContent = p.name;
+  let html = `
+    <div class="info-grid" style="margin-bottom:18px;">
+      <div class="ig-item"><div class="ig-label">Patient ID</div><div class="ig-value">${escapeHtml(p.patientId)}</div></div>
+      <div class="ig-item"><div class="ig-label">Jenis Kelamin</div><div class="ig-value">${escapeHtml(p.gender)}</div></div>
+      <div class="ig-item"><div class="ig-label">Usia</div><div class="ig-value">${p.birthDate?calcAge(p.birthDate)+' tahun':'-'}</div></div>
+      <div class="ig-item"><div class="ig-label">Tempat, Tgl Lahir</div><div class="ig-value">${escapeHtml(p.birthPlace)||'-'}, ${formatDate(p.birthDate)}</div></div>
+      <div class="ig-item"><div class="ig-label">No. Telepon</div><div class="ig-value">${escapeHtml(p.phone)||'-'}</div></div>
+      <div class="ig-item"><div class="ig-label">Pekerjaan</div><div class="ig-value">${escapeHtml(p.occupation)||'-'}</div></div>
+      <div class="ig-item" style="grid-column:1/-1;"><div class="ig-label">Alamat</div><div class="ig-value">${escapeHtml(p.address)||'-'}</div></div>
+    </div>
+    <div class="section-title-row"><h3>Grafik Perkembangan ODI</h3></div>
+    <div id="pd-chart-wrap" style="margin-bottom:18px;"></div>
+    <div class="section-title-row"><h3>Riwayat Asesmen (${history.length})</h3></div>
+    <div class="table-wrap" style="margin-bottom:14px;">
+      <table>
+        <thead><tr><th>Tanggal</th><th>ODI</th><th>Interpretation</th><th>Pemeriksa</th><th>Aksi</th></tr></thead>
+        <tbody>
+          ${history.length ? history.map(a=>`
+            <tr>
+              <td>${formatDate(a.examDate)}</td>
+              <td>${a.odiPercent}%</td>
+              <td>${badgeForInterp(a.interpretation)}</td>
+              <td>${escapeHtml(a.examiner)}</td>
+              <td><button class="cell-link" onclick="viewAssessment(${a.id})">Lihat</button></td>
+            </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--ink-faint);">Belum ada riwayat asesmen.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm" onclick="closeModal('modal-patient-detail'); startAssessmentForPatient('${escapeJs(p.patientId)}');">+ Asesmen Baru</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-patient-detail'); openEditPatient('${escapeJs(p.patientId)}');">Edit Data</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportPatientExcel('${escapeJs(p.patientId)}')">Export Excel Pasien Ini</button>
+    </div>
+  `;
+  document.getElementById('pd-body').innerHTML = html;
+  openModal('modal-patient-detail');
+  renderLineChart('pd-chart-wrap', history);
+}
+
+function openEditPatient(patientId){
+  const p = ALL_PATIENTS.find(x=>x.patientId===patientId);
+  if(!p) return;
+  const html = `
+    <form id="editPatientForm" onsubmit="return false;">
+      <div class="form-grid">
+        <div class="field"><label>Patient ID</label><input type="text" value="${escapeHtml(p.patientId)}" disabled></div>
+        <div class="field" id="ef-name"><label>Nama Lengkap <span class="req">*</span></label><input type="text" id="ep-name" value="${escapeHtml(p.name)}"></div>
+        <div class="field"><label>NIK</label><input type="text" id="ep-nik" value="${escapeHtml(p.nik)}" maxlength="16"></div>
+        <div class="field" id="ef-gender"><label>Jenis Kelamin <span class="req">*</span></label>
+          <select id="ep-gender">
+            <option value="Laki-laki" ${p.gender==='Laki-laki'?'selected':''}>Laki-laki</option>
+            <option value="Perempuan" ${p.gender==='Perempuan'?'selected':''}>Perempuan</option>
+          </select>
+        </div>
+        <div class="field"><label>Tempat Lahir</label><input type="text" id="ep-birthPlace" value="${escapeHtml(p.birthPlace)}"></div>
+        <div class="field" id="ef-birthDate"><label>Tanggal Lahir <span class="req">*</span></label><input type="date" id="ep-birthDate" value="${p.birthDate||''}"></div>
+        <div class="field"><label>Nomor Telepon</label><input type="text" id="ep-phone" value="${escapeHtml(p.phone)}"></div>
+        <div class="field"><label>Pekerjaan</label><input type="text" id="ep-occupation" value="${escapeHtml(p.occupation)}"></div>
+        <div class="field full"><label>Alamat</label><input type="text" id="ep-address" value="${escapeHtml(p.address)}"></div>
+      </div>
+      <div class="divider"></div>
+      <div class="btn-row" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('modal-edit-patient')">Batal</button>
+        <button type="button" class="btn btn-primary" onclick="saveEditedPatient('${escapeJs(p.patientId)}')">Simpan Perubahan</button>
+      </div>
+    </form>
+  `;
+  document.getElementById('edit-patient-body').innerHTML = html;
+  openModal('modal-edit-patient');
+}
+async function saveEditedPatient(patientId){
+  const name = document.getElementById('ep-name').value.trim();
+  const gender = document.getElementById('ep-gender').value;
+  const birthDate = document.getElementById('ep-birthDate').value;
+  let ok = true;
+  fieldError('ef-name', !name); if(!name) ok=false;
+  fieldError('ef-gender', !gender); if(!gender) ok=false;
+  const birthDateInvalid = !birthDate || new Date(birthDate) > new Date();
+  fieldError('ef-birthDate', birthDateInvalid); if(birthDateInvalid) ok=false;
+  if(!ok){ showToast('Lengkapi field yang wajib diisi.', 'err'); return; }
+
+  setLoading(true);
+  try{
+    const p = await dbGet('patients', patientId);
+    p.name = name;
+    p.nik = document.getElementById('ep-nik').value.trim();
+    p.gender = gender;
+    p.birthPlace = document.getElementById('ep-birthPlace').value.trim();
+    p.birthDate = birthDate;
+    p.phone = document.getElementById('ep-phone').value.trim();
+    p.occupation = document.getElementById('ep-occupation').value.trim();
+    p.address = document.getElementById('ep-address').value.trim();
+    p.updatedAt = new Date().toISOString();
+    await dbPut('patients', p);
+
+    // keep denormalized patientName in-sync on assessments
+    const relatedAssessments = await dbGetByIndex('assessments','patientId', patientId);
+    for(const a of relatedAssessments){
+      if(a.patientName !== name){
+        a.patientName = name;
+        await dbPut('assessments', a);
+      }
+    }
+    await reloadAllData();
+    closeModal('modal-edit-patient');
+    renderPatientsTable();
+    renderDashboard();
+    renderHistoryTable();
+    showToast('Data pasien berhasil diperbarui.');
+  }catch(err){
+    console.error(err);
+    showToast('Gagal menyimpan perubahan.', 'err');
+  }finally{
+    setLoading(false);
+  }
+}
+function askDeletePatient(patientId){
+  const p = ALL_PATIENTS.find(x=>x.patientId===patientId);
+  if(!p) return;
+  document.getElementById('confirm-generic-title').textContent = 'Hapus Pasien';
+  document.getElementById('confirm-generic-text').textContent = `Hapus pasien "${p.name}" (${p.patientId}) beserta seluruh riwayat asesmennya? Tindakan ini tidak dapat dibatalkan.`;
+  const btn = document.getElementById('confirm-generic-action');
+  btn.onclick = ()=>deletePatientConfirmed(patientId);
+  openModal('modal-confirm-generic');
+}
+async function deletePatientConfirmed(patientId){
+  setLoading(true);
+  try{
+    const related = await dbGetByIndex('assessments','patientId',patientId);
+    for(const a of related){ await dbDelete('assessments', a.id); }
+    await dbDelete('patients', patientId);
+    await reloadAllData();
+    closeModal('modal-confirm-generic');
+    renderPatientsTable();
+    renderDashboard();
+    renderHistoryTable();
+    showToast('Pasien dan riwayat asesmennya berhasil dihapus.');
+  }catch(err){
+    console.error(err);
+    showToast('Gagal menghapus data.', 'err');
+  }finally{
+    setLoading(false);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   12. RIWAYAT ASESMEN
+   --------------------------------------------------------------------- */
+function populateHistoryPatientFilter(){
+  const sel = document.getElementById('history-patient-filter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Semua Pasien</option>' +
+    ALL_PATIENTS.slice().sort((a,b)=>a.name.localeCompare(b.name))
+      .map(p=>`<option value="${escapeHtml(p.patientId)}">${escapeHtml(p.name)} (${escapeHtml(p.patientId)})</option>`).join('');
+  sel.value = current;
+}
+function renderHistoryTable(){
+  populateHistoryPatientFilter();
+  const q = (document.getElementById('history-search').value||'').toLowerCase().trim();
+  const patientFilter = document.getElementById('history-patient-filter').value;
+
+  let rows = ALL_ASSESSMENTS.filter(a=>{
+    if(patientFilter && a.patientId!==patientFilter) return false;
+    if(!q) return true;
+    return (a.patientName||'').toLowerCase().includes(q) || (a.patientId||'').toLowerCase().includes(q);
+  });
+
+  const body = document.getElementById('history-table-body');
+  const emptyWrap = document.getElementById('history-empty');
+  if(ALL_ASSESSMENTS.length===0){
+    body.innerHTML='';
+    emptyWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📈</div><h4>Belum ada riwayat</h4><p>Riwayat asesmen akan muncul di sini setelah Anda menyimpan asesmen.</p></div>`;
+  } else if(rows.length===0){
+    body.innerHTML='';
+    emptyWrap.innerHTML = `<div class="empty-state"><h4>Tidak ditemukan</h4><p>Tidak ada asesmen yang cocok dengan filter.</p></div>`;
+  } else {
+    emptyWrap.innerHTML='';
+    body.innerHTML = rows.map(a=>`
+      <tr>
+        <td>${formatDate(a.examDate)}</td>
+        <td><button class="cell-link" onclick="openPatientDetail('${escapeJs(a.patientId)}')">${escapeHtml(a.patientName)}</button></td>
+        <td>${escapeHtml(a.patientId)}</td>
+        <td>${a.odiPercent}%</td>
+        <td>${badgeForInterp(a.interpretation)}</td>
+        <td>${escapeHtml(a.examiner)}</td>
+        <td><button class="cell-link" onclick="viewAssessment(${a.id})">Lihat</button></td>
+      </tr>`).join('');
+  }
+
+  const chartCard = document.getElementById('history-chart-card');
+  if(patientFilter){
+    const p = ALL_PATIENTS.find(x=>x.patientId===patientFilter);
+    const hist = ALL_ASSESSMENTS.filter(a=>a.patientId===patientFilter);
+    chartCard.style.display = '';
+    document.getElementById('history-chart-title').textContent = 'Grafik Perkembangan ODI — ' + (p?p.name:patientFilter);
+    renderLineChart('history-chart-wrap', hist);
+  } else {
+    chartCard.style.display = 'none';
+  }
+}
+
+/* Simple dependency-free SVG line chart: X = examDate, Y = odiPercent */
+function renderLineChart(containerId, assessmentsForPatient){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  if(!assessmentsForPatient || assessmentsForPatient.length===0){
+    el.innerHTML = `<div class="chart-empty">Belum ada cukup data untuk menampilkan grafik.</div>`;
+    return;
+  }
+  const data = assessmentsForPatient.slice().sort((a,b)=>new Date(a.examDate)-new Date(b.examDate));
+  if(data.length===1){
+    el.innerHTML = `<div class="chart-empty">Baru ada 1 asesmen (${formatDate(data[0].examDate)}: ${data[0].odiPercent}%). Grafik akan muncul setelah ada 2+ asesmen.</div>`;
+    return;
+  }
+  const W = 640, H = 220, padL = 40, padR = 20, padT = 20, padB = 34;
+  const innerW = W-padL-padR, innerH = H-padT-padB;
+  const xFor = (i)=> padL + (data.length===1 ? innerW/2 : (i/(data.length-1))*innerW);
+  const yFor = (v)=> padT + innerH - (v/100)*innerH;
+
+  let gridLines = '';
+  [0,25,50,75,100].forEach(g=>{
+    const y = yFor(g);
+    gridLines += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="#E1E7E5" stroke-width="1"/>`;
+    gridLines += `<text x="${padL-8}" y="${y+4}" font-size="10" fill="#8C9C97" text-anchor="end">${g}%</text>`;
+  });
+
+  const pathD = data.map((d,i)=>`${i===0?'M':'L'} ${xFor(i).toFixed(1)} ${yFor(d.odiPercent).toFixed(1)}`).join(' ');
+  const areaD = pathD + ` L ${xFor(data.length-1).toFixed(1)} ${padT+innerH} L ${xFor(0).toFixed(1)} ${padT+innerH} Z`;
+
+  let points = '';
+  let labels = '';
+  data.forEach((d,i)=>{
+    const x = xFor(i), y = yFor(d.odiPercent);
+    const interp = interpretODI(d.odiPercent);
+    points += `<circle cx="${x}" cy="${y}" r="4.5" fill="${interp.hex}" stroke="#fff" stroke-width="1.5"><title>${formatDate(d.examDate)}: ${d.odiPercent}%</title></circle>`;
+    if(i===0 || i===data.length-1 || data.length<=6 || i%Math.ceil(data.length/6)===0){
+      labels += `<text x="${x}" y="${H-10}" font-size="9.5" fill="#8C9C97" text-anchor="middle">${formatDate(d.examDate).slice(0,6)}</text>`;
+    }
+  });
+
+  el.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;max-height:260px;" preserveAspectRatio="xMidYMid meet">
+      ${gridLines}
+      <path d="${areaD}" fill="#0F5257" opacity="0.06"></path>
+      <path d="${pathD}" fill="none" stroke="#0F5257" stroke-width="2.5"></path>
+      ${points}
+      ${labels}
+    </svg>`;
+}
+
+/* ---------------------------------------------------------------------
+   13. VIEW READ-ONLY ASSESSMENT (from history/dashboard)
+   --------------------------------------------------------------------- */
+let currentViewedAssessment = null;
+
+function viewAssessment(id){
+  const a = ALL_ASSESSMENTS.find(x=>x.id===id);
+  if(!a) return;
+  const p = ALL_PATIENTS.find(x=>x.patientId===a.patientId) || {};
+  currentViewedAssessment = a;
+
+  const interp = interpretODI(a.odiPercent);
+  let detailRows = '';
+  ODI_SECTIONS.forEach((s,i)=>{
+    const val = a.answers ? a.answers[i] : null;
+    detailRows += `
+      <div class="detail-score-row ${val===null||val===undefined?'missing':''}">
+        <span class="dsr-name">${s.title}</span>
+        <span class="dsr-score">${(val===null||val===undefined)?'—':val+' / 5'}</span>
+      </div>`;
+  });
+
+  const age = p.birthDate ? calcAge(p.birthDate, a.examDate) : null;
+
+  document.getElementById('pd-title').textContent = 'Hasil Asesmen — ' + formatDate(a.examDate);
+  const html = `
+    <div class="result-hero" style="background:${interp.hex};margin-bottom:16px;">
+      <div class="r-pct">${a.odiPercent}%</div>
+      <div class="r-label">${interp.label}</div>
+      <div class="r-raw">Raw Score: ${a.totalScore} / ${a.maxScore}</div>
+      <div class="gauge-track"><div class="gauge-fill" style="width:${a.odiPercent}%;"></div></div>
+    </div>
+    <div class="info-grid" style="margin-bottom:16px;">
+      <div class="ig-item"><div class="ig-label">Patient ID</div><div class="ig-value">${escapeHtml(a.patientId)}</div></div>
+      <div class="ig-item"><div class="ig-label">Nama</div><div class="ig-value">${escapeHtml(a.patientName)}</div></div>
+      <div class="ig-item"><div class="ig-label">Jenis Kelamin</div><div class="ig-value">${escapeHtml(p.gender)||'-'}</div></div>
+      <div class="ig-item"><div class="ig-label">Usia saat periksa</div><div class="ig-value">${age!==null?age+' tahun':'-'}</div></div>
+      <div class="ig-item"><div class="ig-label">Tanggal Pemeriksaan</div><div class="ig-value">${formatDate(a.examDate)}</div></div>
+      <div class="ig-item"><div class="ig-label">Pemeriksa</div><div class="ig-value">${escapeHtml(a.examiner)}</div></div>
+    </div>
+    <div class="section-title-row"><h3>Detail Scores</h3></div>
+    <div class="detail-score-grid" style="margin-bottom:16px;">${detailRows}</div>
+    <div class="section-title-row"><h3>Clinical Notes</h3></div>
+    <p style="font-size:13px;color:var(--ink-soft);white-space:pre-wrap;margin-bottom:16px;">${escapeHtml(a.clinicalNotes)||'—'}</p>
+    <div class="btn-row">
+      <button class="btn btn-secondary btn-sm" onclick="printCurrentAssessment(${a.id})">🖨 Cetak PDF</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportSingleAssessmentExcel(${a.id})">⬇ Export Excel</button>
+      <button class="btn btn-danger btn-sm" onclick="askDeleteAssessment(${a.id})">Hapus Asesmen</button>
+    </div>
+  `;
+  document.getElementById('pd-body').innerHTML = html;
+  openModal('modal-patient-detail');
+}
+function askDeleteAssessment(id){
+  const a = ALL_ASSESSMENTS.find(x=>x.id===id);
+  if(!a) return;
+  document.getElementById('confirm-generic-title').textContent = 'Hapus Asesmen';
+  document.getElementById('confirm-generic-text').textContent = `Hapus asesmen tanggal ${formatDate(a.examDate)} milik ${a.patientName}? Tindakan ini tidak dapat dibatalkan.`;
+  const btn = document.getElementById('confirm-generic-action');
+  btn.onclick = ()=>deleteAssessmentConfirmed(id);
+  openModal('modal-confirm-generic');
+}
+async function deleteAssessmentConfirmed(id){
+  setLoading(true);
+  try{
+    await dbDelete('assessments', id);
+    await reloadAllData();
+    closeModal('modal-confirm-generic');
+    closeModal('modal-patient-detail');
+    renderHistoryTable();
+    renderPatientsTable();
+    renderDashboard();
+    showToast('Asesmen berhasil dihapus.');
+  }catch(err){
+    console.error(err);
+    showToast('Gagal menghapus asesmen.', 'err');
+  }finally{
+    setLoading(false);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   14. PRINT / PDF
+   --------------------------------------------------------------------- */
+function buildPrintHtml(assessment, patient){
+  const interp = interpretODI(assessment.odiPercent);
+  const age = patient && patient.birthDate ? calcAge(patient.birthDate, assessment.examDate) : null;
+  let rows = '';
+  ODI_SECTIONS.forEach((s,i)=>{
+    const v = assessment.answers ? assessment.answers[i] : null;
+    rows += `<tr><td>${i+1}</td><td>${escapeHtml(s.title)}</td><td>${(v===null||v===undefined)?'-':v}</td></tr>`;
+  });
+  const genDate = new Date().toLocaleString('id-ID');
+  return `
+  <div class="print-page">
+    <div class="print-header">
+      <h1>ODI PHYSIOTHERAPY ASSESSMENT</h1>
+      <p>Digital Oswestry Disability Index Assessment</p>
+    </div>
+
+    <div class="print-section">
+      <h2>Patient Information</h2>
+      <div class="print-grid">
+        <div><span class="k">Patient ID</span> ${escapeHtml(assessment.patientId)}</div>
+        <div><span class="k">Name</span> ${escapeHtml(assessment.patientName)}</div>
+        <div><span class="k">Gender</span> ${escapeHtml(patient?patient.gender:'')||'-'}</div>
+        <div><span class="k">Age</span> ${age!==null?age+' years':'-'}</div>
+        <div><span class="k">Date of Birth</span> ${patient?formatDate(patient.birthDate):'-'}</div>
+        <div><span class="k">Phone</span> ${escapeHtml(patient?patient.phone:'')||'-'}</div>
+        <div><span class="k">Occupation</span> ${escapeHtml(patient?patient.occupation:'')||'-'}</div>
+        <div><span class="k">Assessment Date</span> ${formatDate(assessment.examDate)}</div>
+        <div><span class="k">Examiner</span> ${escapeHtml(assessment.examiner)}</div>
+      </div>
+    </div>
+
+    <div class="print-section">
+      <h2>Clinical Information</h2>
+      <div class="print-grid">
+        <div><span class="k">Chief Complaint</span> ${escapeHtml(assessment.chiefComplaint)||'-'}</div>
+        <div><span class="k">Medical Diagnosis</span> ${escapeHtml(assessment.medicalDx)||'-'}</div>
+        <div><span class="k">Physiotherapy Diagnosis</span> ${escapeHtml(assessment.physioDx)||'-'}</div>
+      </div>
+    </div>
+
+    <div class="print-result">
+      <div class="pr-pct">${assessment.odiPercent}%</div>
+      <div class="pr-label">${interp.label}</div>
+      <div style="font-size:11px;color:#555;margin-top:4px;">ODI Score: ${assessment.totalScore} / ${assessment.maxScore}</div>
+    </div>
+
+    <div class="print-section">
+      <h2>ODI Detail</h2>
+      <table class="print-table">
+        <thead><tr><th style="width:8%;">No</th><th>Section</th><th style="width:15%;">Score</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+
+    <div class="print-section">
+      <h2>Clinical Notes</h2>
+      <div class="print-notes">${escapeHtml(assessment.clinicalNotes)||'-'}</div>
+    </div>
+
+    <div class="print-sign">
+      <div class="sign-box">
+        <div class="sign-line">${escapeHtml(assessment.examiner)}<br>Physiotherapist</div>
+      </div>
+    </div>
+
+    <div class="print-footer">
+      <span>ODI Physiotherapy Assessment — Generated by Digital Assessment System</span>
+      <span>Date generated: ${genDate}</span>
+    </div>
+  </div>`;
+}
+function printCurrentAssessment(assessmentId){
+  let assessment, patient;
+  if(assessmentId){
+    assessment = ALL_ASSESSMENTS.find(a=>a.id===assessmentId);
+    patient = ALL_PATIENTS.find(p=>p.patientId===assessment.patientId);
+  } else if(draftPatient){
+    const score = computeScore(draftAnswers);
+    const interp = interpretODI(score.odiPercent);
+    assessment = {
+      patientId: draftPatient.patientId, patientName: draftPatient.name,
+      examDate: draftPatient.examDate, examiner: draftPatient.examiner,
+      chiefComplaint: draftPatient.chiefComplaint, medicalDx: draftPatient.medicalDx,
+      physioDx: draftPatient.physioDx, clinicalNotes: draftPatient.clinicalNotes,
+      answers: draftAnswers, totalScore: score.totalScore, maxScore: score.maxScore,
+      odiPercent: score.odiPercent, interpretation: interp.label
+    };
+    patient = draftPatient;
+  } else { return; }
+  document.getElementById('printReport').innerHTML = buildPrintHtml(assessment, patient);
+  setTimeout(()=>window.print(), 80);
+}
+
+/* ---------------------------------------------------------------------
+   15. EXCEL EXPORT (SheetJS)
+   --------------------------------------------------------------------- */
+function patientSheetRows(patients){
+  return patients.map(p=>({
+    'Patient ID': p.patientId, 'Nama': p.name, 'NIK': p.nik||'', 'Gender': p.gender,
+    'Birth Place': p.birthPlace||'', 'Birth Date': p.birthDate||'', 'Age': p.birthDate?calcAge(p.birthDate):'',
+    'Phone': p.phone||'', 'Address': p.address||'', 'Occupation': p.occupation||''
+  }));
+}
+function assessmentSheetRows(assessments){
+  return assessments.map(a=>{
+    const row = {
+      'Assessment ID': a.id, 'Patient ID': a.patientId, 'Patient Name': a.patientName,
+      'Assessment Date': a.examDate, 'Examiner': a.examiner
+    };
+    ODI_SECTIONS.forEach((s,i)=>{
+      const label = s.title;
+      row[label] = (a.answers && a.answers[i]!==null && a.answers[i]!==undefined) ? a.answers[i] : '';
+    });
+    row['Total Score'] = a.totalScore;
+    row['Maximum Score'] = a.maxScore;
+    row['ODI %'] = a.odiPercent/100;
+    row['Interpretation'] = a.interpretation;
+    row['Notes'] = a.clinicalNotes||'';
+    return row;
+  });
+}
+function buildWorkbook(patients, assessments){
+  const wb = XLSX.utils.book_new();
+
+  const wsPatients = XLSX.utils.json_to_sheet(patientSheetRows(patients));
+  wsPatients['!cols'] = [10,20,16,10,14,12,6,16,26,18].map(w=>({wch:w}));
+  wsPatients['!freeze'] = {xSplit:0, ySplit:1};
+  wsPatients['!views'] = [{state:'frozen', ySplit:1}];
+  XLSX.utils.book_append_sheet(wb, wsPatients, 'Patient Data');
+
+  const aRows = assessmentSheetRows(assessments);
+  const wsAssess = XLSX.utils.json_to_sheet(aRows);
+  const headers = Object.keys(aRows[0] || {'Assessment ID':1});
+  wsAssess['!cols'] = headers.map(h=>({wch: Math.max(12, Math.min(28, h.length+4))}));
+  wsAssess['!views'] = [{state:'frozen', ySplit:1}];
+  const pctColIdx = headers.indexOf('ODI %');
+  if(pctColIdx>=0){
+    const range = XLSX.utils.decode_range(wsAssess['!ref']);
+    for(let R=range.s.r+1; R<=range.e.r; R++){
+      const cellRef = XLSX.utils.encode_cell({r:R,c:pctColIdx});
+      if(wsAssess[cellRef]) wsAssess[cellRef].z = '0%';
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, wsAssess, 'ODI Assessment');
+  return wb;
+}
+function exportAllExcel(){
+  if(ALL_PATIENTS.length===0 && ALL_ASSESSMENTS.length===0){
+    showToast('Belum ada data untuk diexport.', 'warn'); return;
+  }
+  setLoading(true);
+  setTimeout(()=>{
+    try{
+      const wb = buildWorkbook(ALL_PATIENTS, ALL_ASSESSMENTS);
+      XLSX.writeFile(wb, `ODI_Assessment_${todayStr()}.xlsx`);
+      showToast('Export Excel berhasil.');
+    }catch(err){ console.error(err); showToast('Gagal export Excel.', 'err'); }
+    finally{ setLoading(false); }
+  }, 30);
+}
+function exportPatientExcel(patientId){
+  const p = ALL_PATIENTS.filter(x=>x.patientId===patientId);
+  const a = ALL_ASSESSMENTS.filter(x=>x.patientId===patientId);
+  if(p.length===0){ showToast('Data pasien tidak ditemukan.', 'err'); return; }
+  setLoading(true);
+  setTimeout(()=>{
+    try{
+      const wb = buildWorkbook(p, a);
+      XLSX.writeFile(wb, `ODI_Assessment_${patientId}_${todayStr()}.xlsx`);
+      showToast('Export Excel pasien berhasil.');
+    }catch(err){ console.error(err); showToast('Gagal export Excel.', 'err'); }
+    finally{ setLoading(false); }
+  }, 30);
+}
+function exportSingleAssessmentExcel(assessmentId){
+  let assessment, patient;
+  if(assessmentId){
+    assessment = ALL_ASSESSMENTS.find(a=>a.id===assessmentId);
+    patient = ALL_PATIENTS.find(p=>p.patientId===assessment.patientId);
+  } else if(draftPatient){
+    const score = computeScore(draftAnswers);
+    const interp = interpretODI(score.odiPercent);
+    assessment = {
+      id:'(belum disimpan)', patientId: draftPatient.patientId, patientName: draftPatient.name,
+      examDate: draftPatient.examDate, examiner: draftPatient.examiner,
+      clinicalNotes: draftPatient.clinicalNotes, answers: draftAnswers,
+      totalScore: score.totalScore, maxScore: score.maxScore, odiPercent: score.odiPercent,
+      interpretation: interp.label
+    };
+    patient = draftPatient;
+  } else { return; }
+  setLoading(true);
+  setTimeout(()=>{
+    try{
+      const wb = buildWorkbook(patient?[patient]:[], [assessment]);
+      XLSX.writeFile(wb, `ODI_Assessment_${assessment.patientId}_${assessment.examDate}.xlsx`);
+      showToast('Export Excel berhasil.');
+    }catch(err){ console.error(err); showToast('Gagal export Excel.', 'err'); }
+    finally{ setLoading(false); }
+  }, 30);
+}
+
+/* ---------------------------------------------------------------------
+   16. BACKUP / RESTORE / DELETE ALL
+   --------------------------------------------------------------------- */
+function openBackupModal(){ openModal('modal-backup'); }
+function backupData(){
+  setLoading(true);
+  setTimeout(()=>{
+    try{
+      const payload = {
+        app: 'ODI Physiotherapy Assessment', version: 1, exportedAt: new Date().toISOString(),
+        patients: ALL_PATIENTS, assessments: ALL_ASSESSMENTS
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = `ODI_Backup_${todayStr()}.json`;
+      document.body.appendChild(link); link.click(); link.remove();
+      URL.revokeObjectURL(url);
+      showToast('Backup berhasil diunduh.');
+    }catch(err){ console.error(err); showToast('Gagal membuat backup.', 'err'); }
+    finally{ setLoading(false); }
+  }, 20);
+}
+function restoreData(){
+  const fileInput = document.getElementById('restoreFileInput');
+  const file = fileInput.files[0];
+  if(!file){ showToast('Pilih file backup (.json) terlebih dahulu.', 'warn'); return; }
+  setLoading(true);
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const data = JSON.parse(e.target.result);
+      if(!data || !Array.isArray(data.patients) || !Array.isArray(data.assessments)){
+        throw new Error('Format file backup tidak valid.');
+      }
+      for(const p of data.patients){ await dbPut('patients', p); }
+      for(const a of data.assessments){ await dbPut('assessments', a); }
+      await reloadAllData();
+      closeModal('modal-backup');
+      renderDashboard(); renderPatientsTable(); renderHistoryTable();
+      showToast(`Restore berhasil: ${data.patients.length} pasien, ${data.assessments.length} asesmen.`);
+    }catch(err){
+      console.error(err);
+      showToast('Gagal restore: file tidak valid.', 'err');
+    }finally{
+      setLoading(false);
+      fileInput.value='';
+    }
+  };
+  reader.onerror = ()=>{ setLoading(false); showToast('Gagal membaca file.', 'err'); };
+  reader.readAsText(file);
+}
+function openDeleteAllModal(){ openModal('modal-deleteall'); }
+function deleteAllStep2(){
+  closeModal('modal-deleteall');
+  document.getElementById('deleteall-confirm-input').value='';
+  openModal('modal-deleteall2');
+}
+async function deleteAllConfirmed(){
+  const val = document.getElementById('deleteall-confirm-input').value.trim();
+  if(val !== 'HAPUS'){
+    showToast('Ketik "HAPUS" dengan benar untuk konfirmasi.', 'err');
+    return;
+  }
+  setLoading(true);
+  try{
+    await dbClear('patients');
+    await dbClear('assessments');
+    await reloadAllData();
+    closeModal('modal-deleteall2');
+    renderDashboard(); renderPatientsTable(); renderHistoryTable();
+    showToast('Seluruh data berhasil dihapus.');
+  }catch(err){
+    console.error(err);
+    showToast('Gagal menghapus data.', 'err');
+  }finally{
+    setLoading(false);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   17. BEFOREUNLOAD GUARD
+   --------------------------------------------------------------------- */
+window.addEventListener('beforeunload', (e)=>{
+  if(hasUnsavedAssessment){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+</script>
+</body>
+</html>
